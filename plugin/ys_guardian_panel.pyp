@@ -736,12 +736,134 @@ def _is_absolute_path(filepath):
 
     return False
 
+# ---------------- unused materials ----------------
+def check_unused_materials(doc):
+    """Check for materials not assigned to any object"""
+    cached = check_cache.get(doc, "unused_mats")
+    if cached is not None:
+        return cached
+
+    unused = []
+    try:
+        materials = doc.GetMaterials()
+        if not materials:
+            check_cache.set(doc, "unused_mats", unused)
+            return unused
+
+        # Collect all materials referenced by texture tags
+        used_mats = set()
+        first = doc.GetFirstObject()
+        if first:
+            for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
+                if not obj:
+                    continue
+                for tag in obj.GetTags():
+                    if tag.GetType() == c4d.Ttexture:
+                        mat = tag[c4d.TEXTURETAG_MATERIAL]
+                        if mat:
+                            used_mats.add(id(mat))
+
+        for mat in materials:
+            if id(mat) not in used_mats:
+                unused.append(mat)
+
+    except Exception as e:
+        safe_print(f"Error checking unused materials: {e}")
+
+    check_cache.set(doc, "unused_mats", unused)
+    return unused
+
+# ---------------- default naming ----------------
+# Common default object names that indicate unorganized scenes
+_DEFAULT_NAMES = {
+    "null", "cube", "sphere", "cylinder", "cone", "plane", "disc", "torus",
+    "capsule", "oil tank", "platonic", "pyramid", "gem", "tube", "landscape",
+    "figure", "spline", "circle", "rectangle", "n-side", "arc", "helix",
+    "sweep", "extrude", "lathe", "loft", "boole", "symmetry", "instance",
+    "cloner", "fracture", "voronoi fracture", "matrix", "mograph",
+    "camera", "light", "floor", "sky", "environment", "physical sky",
+}
+
+def check_default_names(doc):
+    """Check for objects with default/generic names (Cube, Null, Sphere.1, etc.)"""
+    cached = check_cache.get(doc, "names")
+    if cached is not None:
+        return cached
+
+    offenders = []
+    first = doc.GetFirstObject()
+    if not first:
+        check_cache.set(doc, "names", offenders)
+        return offenders
+
+    try:
+        for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
+            if not obj:
+                continue
+            name = (obj.GetName() or "").strip()
+            if not name:
+                offenders.append(obj)
+                continue
+
+            # Strip trailing ".N" suffix (e.g., "Cube.1", "Null.23")
+            base = name.rsplit(".", 1)[0].strip().lower() if "." in name else name.lower()
+
+            if base in _DEFAULT_NAMES:
+                offenders.append(obj)
+
+            if len(offenders) > 50:
+                break
+
+    except Exception as e:
+        safe_print(f"Error checking default names: {e}")
+
+    check_cache.set(doc, "names", offenders)
+    return offenders
+
+# ---------------- output path validation ----------------
+def check_output_paths(doc):
+    """Check render output paths are configured with proper tokens"""
+    cached = check_cache.get(doc, "output")
+    if cached is not None:
+        return cached
+
+    issues = []
+    try:
+        rd = doc.GetFirstRenderData()
+        count = 0
+        while rd and count < 100:
+            name = rd.GetName() or "unnamed"
+            path = rd[c4d.RDATA_PATH] or ""
+
+            if not path.strip():
+                issues.append({"preset": name, "issue": "empty output path"})
+            elif "$prj" not in path and "$take" not in path:
+                issues.append({"preset": name, "issue": f"no tokens in path: {path}"})
+
+            # Check multi-pass path if enabled
+            try:
+                if rd[c4d.RDATA_MULTIPASS_SAVEIMAGE]:
+                    mp_path = rd[c4d.RDATA_MULTIPASS_FILENAME] or ""
+                    if not mp_path.strip():
+                        issues.append({"preset": name, "issue": "empty multi-pass path"})
+            except:
+                pass
+
+            rd = rd.GetNext()
+            count += 1
+
+    except Exception as e:
+        safe_print(f"Error checking output paths: {e}")
+
+    check_cache.set(doc, "output", issues)
+    return issues
+
 # ---------------- UI StatusArea ----------------
 class StatusArea(gui.GeUserArea):
     def __init__(self):
         super().__init__()
         self.data = {}
-        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True}
+        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True, "unused_mats": True, "names": True, "output": True}
         self.pad = 4
         self.rowh = 28  # Tall rows to align with macOS button height
         self.font = c4d.FONT_MONOSPACED  # Terminal-style monospace font
@@ -854,11 +976,40 @@ class StatusArea(gui.GeUserArea):
                         names = self.data.get("paths_names", [])
                         first = names[0] if names else "asset"
                         message = f"Absolute path: {first}" + (f" (+{val-1} more)" if val > 1 else "")
-                        text_col = c4d.Vector(1, 0.3, 0.3)  # Red text
+                        text_col = c4d.Vector(1, 0.3, 0.3)
                     else:
                         status = "[ OK ]"
                         message = "All assets use relative paths"
-                        text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
+                        text_col = c4d.Vector(0.3, 1, 0.3)
+                elif mode == "unused_mats":
+                    if val > 0:
+                        status = "[WARN]"
+                        message = f"{val} unused material(s)"
+                        text_col = c4d.Vector(1, 1, 0.3)
+                    else:
+                        status = "[ OK ]"
+                        message = "All materials assigned"
+                        text_col = c4d.Vector(0.3, 1, 0.3)
+                elif mode == "names":
+                    if val > 0:
+                        status = "[WARN]"
+                        names = self.data.get("names_list", [])
+                        first = names[0] if names else "object"
+                        message = f"Default name '{first}'" + (f" (+{val-1} more)" if val > 1 else "")
+                        text_col = c4d.Vector(1, 1, 0.3)
+                    else:
+                        status = "[ OK ]"
+                        message = "All objects named"
+                        text_col = c4d.Vector(0.3, 1, 0.3)
+                elif mode == "output":
+                    if val > 0:
+                        status = "[FAIL]"
+                        message = f"{val} output path issue(s)"
+                        text_col = c4d.Vector(1, 0.3, 0.3)
+                    else:
+                        status = "[ OK ]"
+                        message = "Output paths configured"
+                        text_col = c4d.Vector(0.3, 1, 0.3)
                 else:
                     status = "[ OK ]" if val <= 0 else "[FAIL]"
                     message = ""
@@ -900,6 +1051,9 @@ class StatusArea(gui.GeUserArea):
                 ("CAMERAS", "cam", "cam"),
                 ("RENDER_PRESETS", "rdc", "rdc"),
                 ("ASSET_PATHS", "paths", "paths"),
+                ("UNUSED_MATS", "unused_mats", "unused_mats"),
+                ("NAMING", "names", "names"),
+                ("OUTPUT_PATHS", "output", "output"),
             ]
 
             for label, key, mode in mapping:
@@ -1008,6 +1162,9 @@ class G:
     BTN_SEL_CAMS = 1133
     BTN_INFO_PRESET = 1134
     BTN_INFO_PATHS = 1135
+    BTN_SEL_UNUSED_MATS = 1136
+    BTN_SEL_NAMES = 1137
+    BTN_INFO_OUTPUT = 1138
 
     # Render preset
     PRESET_DROPDOWN = 1002
@@ -1180,16 +1337,22 @@ class YSPanel(gui.GeDialog):
             cam_bad = check_camera_shift(doc)
             rdc_bad = check_render_conflicts(doc)
             paths_bad = check_texture_paths(doc)
+            unused_mats_bad = check_unused_materials(doc)
+            names_bad = check_default_names(doc)
+            output_bad = check_output_paths(doc)
 
-            # Update visual status area
+            # Count issues
             lights_count = len(lights_bad) if lights_bad else 0
             vis_count = len(vis_bad) if vis_bad else 0
             keys_count = len(keys_bad) if keys_bad else 0
             cam_count = len(cam_bad) if cam_bad else 0
             rdc_count = int(rdc_bad) if rdc_bad else 0
             paths_count = len(paths_bad) if paths_bad else 0
+            unused_mats_count = len(unused_mats_bad) if unused_mats_bad else 0
+            names_count = len(names_bad) if names_bad else 0
+            output_count = len(output_bad) if output_bad else 0
 
-            # Update StatusArea visual display
+            # Update StatusArea
             self.ua.set_state(
                 dict(
                     lights=lights_count,
@@ -1204,21 +1367,23 @@ class YSPanel(gui.GeDialog):
                         f"{'RS tex' if 'redshift' in p['type'] else p['type']}: {p.get('material', p.get('object', 'unknown'))}"
                         for p in (paths_bad[:10] if paths_bad else [])
                     ],
+                    unused_mats=unused_mats_count,
+                    names=names_count,
+                    names_list=[(o.GetName() or "unnamed") for o in (names_bad[:10] if names_bad else [])],
+                    output=output_count,
                 ),
                 self._flags(),
             )
-
-            # Enable/disable checkboxes based on issues (always enabled for user flexibility)
-            # Checkboxes are always enabled - users can tick/untick as needed
-            # The Select button will show appropriate messages if nothing is found
 
             # Store results for selection
             self._lights_bad = lights_bad
             self._vis_bad = vis_bad
             self._keys_bad = keys_bad
             self._cam_bad = cam_bad
-            self._preset_bad = []  # For render presets, we don't track specific objects
             self._paths_bad = paths_bad
+            self._unused_mats_bad = unused_mats_bad
+            self._names_bad = names_bad
+            self._output_bad = output_bad
 
         except Exception as e:
             safe_print(f"Error during refresh: {e}")
@@ -1263,6 +1428,9 @@ class YSPanel(gui.GeDialog):
         self.AddButton(G.BTN_SEL_CAMS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
         self.AddButton(G.BTN_INFO_PRESET, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
         self.AddButton(G.BTN_INFO_PATHS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
+        self.AddButton(G.BTN_SEL_UNUSED_MATS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
+        self.AddButton(G.BTN_SEL_NAMES, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
+        self.AddButton(G.BTN_INFO_OUTPUT, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
         self.GroupEnd()
 
         self.GroupEnd()
@@ -1321,14 +1489,11 @@ class YSPanel(gui.GeDialog):
     def InitValues(self):
         # Initialize watcher states (all active by default - always enabled now)
         self._watcher_states = {
-            'lights': True,
-            'vis': True,
-            'keys': True,
-            'cam': True,
-            'rdc': True,
-            'paths': True  # Texture and alembic absolute path check
+            'lights': True, 'vis': True, 'keys': True, 'cam': True,
+            'rdc': True, 'paths': True, 'unused_mats': True,
+            'names': True, 'output': True,
         }
-        self._all_muted = False  # Always False - monitoring always active
+        self._all_muted = False
 
         # Populate render preset dropdown
         self.AddChild(G.PRESET_DROPDOWN, 0, "Previz")
@@ -1507,6 +1672,34 @@ class YSPanel(gui.GeDialog):
                 info_msg += "Fix: Project > Save Project with Assets"
             else:
                 info_msg = "All asset paths are relative. No issues found."
+            c4d.gui.MessageDialog(info_msg)
+
+        elif cid == G.BTN_SEL_UNUSED_MATS:
+            if hasattr(self, '_unused_mats_bad') and self._unused_mats_bad:
+                # Select unused materials in Material Manager
+                doc.SetSelection(None)
+                for mat in self._unused_mats_bad:
+                    mat.SetBit(c4d.BIT_ACTIVE)
+                c4d.EventAdd()
+                safe_print(f"Selected {len(self._unused_mats_bad)} unused materials")
+            else:
+                safe_print("No unused materials found")
+
+        elif cid == G.BTN_SEL_NAMES:
+            if hasattr(self, '_names_bad') and self._names_bad:
+                _select_objects(doc, self._names_bad)
+                safe_print(f"Selected {len(self._names_bad)} objects with default names")
+            else:
+                safe_print("No naming issues found")
+
+        elif cid == G.BTN_INFO_OUTPUT:
+            if hasattr(self, '_output_bad') and self._output_bad:
+                info_msg = f"OUTPUT PATH ISSUES: {len(self._output_bad)}\n\n"
+                for i, issue in enumerate(self._output_bad[:10], 1):
+                    info_msg += f"{i}. [{issue['preset']}] {issue['issue']}\n"
+                info_msg += "\nUse $prj and $take tokens in output paths."
+            else:
+                info_msg = "All output paths are properly configured."
             c4d.gui.MessageDialog(info_msg)
 
         return True
