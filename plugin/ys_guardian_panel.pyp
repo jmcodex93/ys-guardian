@@ -742,8 +742,8 @@ class StatusArea(gui.GeUserArea):
         super().__init__()
         self.data = {}
         self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True}
-        self.pad = 2  # Compact padding (reduced from 3)
-        self.rowh = 12  # Compact row height (reduced from 24 to save space)
+        self.pad = 4
+        self.rowh = 28  # Tall rows to align with macOS button height
         self.font = c4d.FONT_MONOSPACED  # Terminal-style monospace font
         self.last_draw_time = 0
         self.min_draw_interval = 0.05  # Minimum 50ms between redraws
@@ -877,16 +877,19 @@ class StatusArea(gui.GeUserArea):
                 # Format: [STATUS] CHECK_NAME: Message
                 check_name = label.ljust(15)
 
+                # Vertically center text in row
+                text_y = int(y + (self.rowh - 12) // 2)
+
                 # Draw status
-                self.DrawText(status, int(x+5), int(y+2))
+                self.DrawText(status, int(x+5), text_y)
 
                 # Draw check name
                 self.DrawSetTextCol(c4d.Vector(0.5, 0.5, 0.5), c4d.Vector(0,0,0))  # Gray for label
-                self.DrawText(f"{check_name}:", int(x+55), int(y+2))
+                self.DrawText(f"{check_name}:", int(x+55), text_y)
 
                 # Draw message
                 self.DrawSetTextCol(text_col, c4d.Vector(0,0,0))
-                self.DrawText(message, int(x+175), int(y+2))
+                self.DrawText(message, int(x+175), text_y)
 
                 y += self.rowh + self.pad
 
@@ -993,42 +996,38 @@ _snapshot_handler = SnapshotHandler()
 
 # ---------------- UI Widget IDs ----------------
 class G:
-    # Header controls
+    # Scene info
     SHOT = 1001
-    PRESET_DROPDOWN = 1002
     ARTIST = 1003
-    STEP = 1005
     CANVAS = 1008
 
-    # Stills management
-    BTN_SNAPSHOT = 1009
-    BTN_OPEN_FOLDER = 1010
+    # Per-check action buttons (1 click to select/info)
+    BTN_SEL_LIGHTS = 1130
+    BTN_SEL_VIS = 1131
+    BTN_SEL_KEYS = 1132
+    BTN_SEL_CAMS = 1133
+    BTN_INFO_PRESET = 1134
+    BTN_INFO_PATHS = 1135
 
-    # Quality check checkboxes
-    CHK_LIGHTS = 1110
-    CHK_VIS = 1111
-    CHK_KEYS = 1112
-    CHK_CAMS = 1113
-    CHK_PRESET = 1114
-    CHK_PATHS = 1115
-    BTN_SELECT_CHECKED = 1116
-
-    # Quick Action buttons
-    BTN_ABC_RETIME = 1020
-    BTN_HIERARCHY_TO_LAYERS = 1101
-    BTN_SOLO = 1103
-    BTN_VIBRATE_NULL = 1120
-    BTN_DROP_TO_FLOOR = 1122
-    BTN_CAM_SIMPLE = 1123
-    BTN_CAM_SHAKEL = 1124
-    BTN_CAM_PATH = 1125
-    BTN_CREATE_HIERARCHY = 1126
-
-    # Render preset controls
+    # Render preset
+    PRESET_DROPDOWN = 1002
     BTN_FORCE_RENDER = 1204
     BTN_FORCE_ALL = 1206
 
-    # Footer buttons
+    # Quick Actions
+    BTN_CREATE_HIERARCHY = 1126
+    BTN_HIERARCHY_TO_LAYERS = 1101
+    BTN_SOLO = 1103
+    BTN_DROP_TO_FLOOR = 1122
+    BTN_VIBRATE_NULL = 1120
+    BTN_ABC_RETIME = 1020
+    BTN_CAM_SIMPLE = 1123
+    BTN_CAM_SHAKEL = 1124
+    BTN_CAM_PATH = 1125
+
+    # Output
+    BTN_OPEN_FOLDER = 1010
+    BTN_SNAPSHOT = 1009
     BTN_GITHUB = 1306
     BTN_BUG_REPORT = 1307
 
@@ -1228,82 +1227,95 @@ class YSPanel(gui.GeDialog):
     def CreateLayout(self):
         self.SetTitle(PLUGIN_NAME)
 
-        # Main container - compact spacing
+        # Main container
         self.GroupBegin(1, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 1, 0)
-        self.GroupBorderSpace(6, 6, 6, 6)
+        self.GroupBorderSpace(4, 4, 4, 4)
 
-        # All controls in single row - ultra compact
-        self.GroupBegin(10, c4d.BFH_SCALEFIT, 10, 0)
-        self.AddStaticText(0,0,30,0,"Shot:",0)
-        self.AddEditText(G.SHOT, c4d.BFH_SCALEFIT, 50,0)
-        self.AddStaticText(0,0,35,0,"Artist:",0)
-        self.AddEditText(G.ARTIST, c4d.BFH_SCALEFIT, 60,0)
-        self.AddStaticText(0,0,40,0,"Preset:",0)
-        self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 80, 0)
-        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force")
-        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force All")
+        # ── Scene Info ──
+        self.GroupBegin(10, c4d.BFH_SCALEFIT, 4, 0)
+        self.AddStaticText(0, c4d.BFH_LEFT, 60, 0, "Shot ID", 0)
+        self.AddEditText(G.SHOT, c4d.BFH_SCALEFIT, 80, 0)
+        self.AddStaticText(0, c4d.BFH_LEFT, 0, 0, "Artist  ", 0)
+        self.AddEditText(G.ARTIST, c4d.BFH_SCALEFIT, 100, 0)
         self.GroupEnd()
 
-        # Status area (no label, directly to visual display)
-        self.AddSeparatorH(8)
-        self.GroupBegin(40, c4d.BFH_SCALEFIT, 1, 0)
+        # ── Quality Checks ──
+        self.AddSeparatorH(4)
+        self.GroupBegin(39, c4d.BFH_SCALEFIT, 1, 0, "Quality Checks")
+        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
+        self.GroupBorderSpace(4, 2, 4, 2)
 
-        # Visual status area with terminal-style display
-        self.GroupBegin(406, c4d.BFH_SCALEFIT, 2, 0)
-        self.AddUserArea(G.CANVAS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 0, 92)  # Compact height (no footer)
+        self.GroupBegin(40, c4d.BFH_SCALEFIT|c4d.BFV_TOP, 2, 0)
+        self.GroupSpace(4, 0)
+
+        # Left: terminal status display
+        self.AddUserArea(G.CANVAS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 0, 200)
         self.ua = StatusArea()
         self.AttachUserArea(self.ua, G.CANVAS)
 
-        # Checkboxes and select button column on the right
-        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_TOP, 2, 0)
-
-        # Checkboxes column (one per quality check) - no spacing
-        self.GroupBegin(408, c4d.BFH_RIGHT|c4d.BFV_TOP, 1, 0)
-        self.GroupSpace(0, 0)  # Remove all spacing between items
-        self.AddCheckbox(G.CHK_LIGHTS, c4d.BFH_RIGHT, 0, 10, "")
-        self.AddCheckbox(G.CHK_VIS, c4d.BFH_RIGHT, 0, 10, "")
-        self.AddCheckbox(G.CHK_KEYS, c4d.BFH_RIGHT, 0, 10, "")
-        self.AddCheckbox(G.CHK_CAMS, c4d.BFH_RIGHT, 0, 10, "")
-        self.AddCheckbox(G.CHK_PRESET, c4d.BFH_RIGHT, 0, 10, "")
-        self.AddCheckbox(G.CHK_PATHS, c4d.BFH_RIGHT, 0, 10, "")
-        self.GroupEnd()
-
-        # Single select button (acts on all checked items)
-        self.GroupBegin(409, c4d.BFH_RIGHT|c4d.BFV_TOP, 1, 0)
-        self.AddButton(G.BTN_SELECT_CHECKED, c4d.BFH_RIGHT, 50, 14, "Select")
+        # Right: per-check action buttons (matched to StatusArea row spacing)
+        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 1, 6)
+        self.GroupBorderSpace(0, 4, 0, 4)
+        self.GroupSpace(0, 4)
+        self.AddButton(G.BTN_SEL_LIGHTS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
+        self.AddButton(G.BTN_SEL_VIS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
+        self.AddButton(G.BTN_SEL_KEYS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
+        self.AddButton(G.BTN_SEL_CAMS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
+        self.AddButton(G.BTN_INFO_PRESET, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
+        self.AddButton(G.BTN_INFO_PATHS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
         self.GroupEnd()
 
         self.GroupEnd()
-
         self.GroupEnd()
 
+        # ── Render Preset ──
+        self.GroupBegin(19, c4d.BFH_SCALEFIT, 1, 0, "Render Preset")
+        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
+        self.GroupBorderSpace(4, 2, 4, 2)
+        self.GroupBegin(20, c4d.BFH_SCALEFIT, 3, 0)
+        self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
+        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force")
+        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force All")
+        self.GroupEnd()
         self.GroupEnd()
 
-        # Quick Actions - condensed single row
-        self.AddSeparatorH(12)
-        self.GroupBegin(50, c4d.BFH_SCALEFIT, 8, 0)
-        self.AddButton(G.BTN_CREATE_HIERARCHY,c4d.BFH_SCALEFIT,0,0,"Hier")
-        self.AddButton(G.BTN_HIERARCHY_TO_LAYERS,c4d.BFH_SCALEFIT,0,0,"H→L")
-        self.AddButton(G.BTN_SOLO,c4d.BFH_SCALEFIT,0,0,"Solo")
-        self.AddButton(G.BTN_VIBRATE_NULL,c4d.BFH_SCALEFIT,0,0,"Vib")
-        self.AddButton(G.BTN_DROP_TO_FLOOR,c4d.BFH_SCALEFIT,0,0,"Drop")
-        self.AddButton(G.BTN_HIERARCHY_TO_LAYERSBC_RETIME, c4d.BFH_SCALEFIT, 0, 0, "ABC")
-        self.AddButton(G.BTN_CAM_SIMPLE,c4d.BFH_SCALEFIT,0,0,"Cam1")
-        self.AddButton(G.BTN_CAM_SHAKEL,c4d.BFH_SCALEFIT,0,0,"Cam2")
+        # ── Quick Actions ──
+        self.GroupBegin(49, c4d.BFH_SCALEFIT, 1, 0, "Quick Actions")
+        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
+        self.GroupBorderSpace(4, 2, 4, 2)
+        self.GroupBegin(50, c4d.BFH_SCALEFIT, 4, 0)
+        self.AddButton(G.BTN_CREATE_HIERARCHY, c4d.BFH_SCALEFIT, 0, 0, "Hierarchy")
+        self.AddButton(G.BTN_HIERARCHY_TO_LAYERS, c4d.BFH_SCALEFIT, 0, 0, "H -> Layers")
+        self.AddButton(G.BTN_SOLO, c4d.BFH_SCALEFIT, 0, 0, "Solo Layers")
+        self.AddButton(G.BTN_DROP_TO_FLOOR, c4d.BFH_SCALEFIT, 0, 0, "Drop to Floor")
+        self.GroupEnd()
+        self.GroupBegin(51, c4d.BFH_SCALEFIT, 4, 0)
+        self.AddButton(G.BTN_VIBRATE_NULL, c4d.BFH_SCALEFIT, 0, 0, "Vibrate Null")
+        self.AddButton(G.BTN_ABC_RETIME, c4d.BFH_SCALEFIT, 0, 0, "ABC Retime")
+        self.AddButton(G.BTN_CAM_SIMPLE, c4d.BFH_SCALEFIT, 0, 0, "Cam Simple")
+        self.AddButton(G.BTN_CAM_SHAKEL, c4d.BFH_SCALEFIT, 0, 0, "Cam Shakel")
+        self.GroupEnd()
         self.GroupEnd()
 
-        # Utilities - Stills, GitHub, Bug Report (condensed single row)
-        self.AddSeparatorH(8)
-        self.GroupBegin(60, c4d.BFH_SCALEFIT, 4, 0)
-        self.AddButton(G.BTN_OPEN_FOLDER, c4d.BFH_SCALEFIT, 0, 0, "Folder")
-        self.AddButton(G.BTN_SNAPSHOT, c4d.BFH_SCALEFIT, 0, 0, "Still")
-        self.AddButton(G.BTN_GITHUB, c4d.BFH_SCALEFIT, 0, 0, "Git↗")
-        self.AddButton(G.BTN_SOLOUG_REPORT, c4d.BFH_SCALEFIT, 0, 0, "Bug↗")
+        # ── Output ──
+        self.GroupBegin(59, c4d.BFH_SCALEFIT, 1, 0, "Output")
+        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
+        self.GroupBorderSpace(4, 2, 4, 2)
+        self.GroupBegin(60, c4d.BFH_SCALEFIT, 2, 0)
+        self.AddButton(G.BTN_OPEN_FOLDER, c4d.BFH_SCALEFIT, 0, 0, "Open Folder")
+        self.AddButton(G.BTN_SNAPSHOT, c4d.BFH_SCALEFIT, 0, 0, "Save Still")
+        self.GroupEnd()
         self.GroupEnd()
 
-        self.GroupEnd()  # Main container end
+        # ── Footer ──
+        self.GroupBegin(70, c4d.BFH_SCALEFIT, 2, 0)
+        self.AddButton(G.BTN_GITHUB, c4d.BFH_SCALEFIT, 0, 0, "GitHub")
+        self.AddButton(G.BTN_BUG_REPORT, c4d.BFH_SCALEFIT, 0, 0, "Report Bug")
+        self.GroupEnd()
 
-        self.SetTimer(3000)  # Safety net only - CoreMessage handles instant updates
+        self.GroupEnd()  # Main container
+
+        self.SetTimer(3000)
         return True
 
     def InitValues(self):
@@ -1402,7 +1414,7 @@ class YSPanel(gui.GeDialog):
         elif cid == G.BTN_OPEN_FOLDER:
             self._open_artist_folder()
 
-        elif cid == G.BTN_HIERARCHY_TO_LAYERSBC_RETIME:
+        elif cid == G.BTN_ABC_RETIME:
             self._apply_abc_retime_tag()
 
         elif cid == G.BTN_VIBRATE_NULL:
@@ -1431,115 +1443,71 @@ class YSPanel(gui.GeDialog):
 
         elif cid == G.BTN_GITHUB:
             # Open GitHub repository
-            github_url = "https://github.com/yamb0x/ys-guardian"
+            github_url = "https://github.com/jmcodex93/ys-guardian"
             webbrowser.open(github_url)
             safe_print(f"Opening GitHub repository: {github_url}")
 
-        elif cid == G.BTN_SOLOUG_REPORT:
+        elif cid == G.BTN_BUG_REPORT:
             # Open GitHub issues page for bug reports
-            bug_url = "https://github.com/yamb0x/ys-guardian/issues/new"
+            bug_url = "https://github.com/jmcodex93/ys-guardian/issues/new"
             webbrowser.open(bug_url)
             safe_print(f"Opening bug report page: {bug_url}")
 
-        elif cid == G.BTN_SELECT_CHECKED:
-            # Process all checked quality checks
-            all_objects = []
-            messages = []
-            show_info = False
+        # Per-check Select buttons (1 click to select problematic objects)
+        elif cid == G.BTN_SEL_LIGHTS:
+            if self._lights_bad:
+                _select_objects(doc, self._lights_bad)
+                safe_print(f"Selected {len(self._lights_bad)} lights outside group")
+            else:
+                safe_print("No light issues found")
 
-            # Check which checkboxes are ticked and gather objects/info
-            if self.GetBool(G.CHK_LIGHTS):
-                if hasattr(self, '_lights_bad') and self._lights_bad:
-                    all_objects.extend(self._lights_bad)
-                    messages.append(f"Lights: {len(self._lights_bad)}")
+        elif cid == G.BTN_SEL_VIS:
+            if self._vis_bad:
+                _select_objects(doc, self._vis_bad)
+                safe_print(f"Selected {len(self._vis_bad)} objects with visibility mismatch")
+            else:
+                safe_print("No visibility issues found")
 
-            if self.GetBool(G.CHK_VIS):
-                if hasattr(self, '_vis_bad') and self._vis_bad:
-                    all_objects.extend(self._vis_bad)
-                    messages.append(f"Visibility: {len(self._vis_bad)}")
+        elif cid == G.BTN_SEL_KEYS:
+            if self._keys_bad:
+                _select_objects(doc, self._keys_bad)
+                safe_print(f"Selected {len(self._keys_bad)} objects with multi-axis keyframes")
+            else:
+                safe_print("No keyframe issues found")
 
-            if self.GetBool(G.CHK_KEYS):
-                if hasattr(self, '_keys_bad') and self._keys_bad:
-                    all_objects.extend(self._keys_bad)
-                    messages.append(f"Keyframes: {len(self._keys_bad)}")
+        elif cid == G.BTN_SEL_CAMS:
+            if self._cam_bad:
+                _select_objects(doc, self._cam_bad)
+                safe_print(f"Selected {len(self._cam_bad)} cameras with non-zero shift")
+            else:
+                safe_print("No camera shift issues found")
 
-            if self.GetBool(G.CHK_CAMS):
-                if hasattr(self, '_cam_bad') and self._cam_bad:
-                    all_objects.extend(self._cam_bad)
-                    messages.append(f"Cameras: {len(self._cam_bad)}")
+        elif cid == G.BTN_INFO_PRESET:
+            info_msg = "RENDER PRESETS:\n\n"
+            info_msg += "Standard presets: previz, pre_render, render, stills\n\n"
+            rd = doc.GetFirstRenderData()
+            while rd:
+                name = rd.GetName()
+                normalized = normalize_preset_name(name)
+                status = "OK" if normalized in set(PRESETS) else "NON-STANDARD"
+                info_msg += f"  [{status}] {name}\n"
+                rd = rd.GetNext()
+            c4d.gui.MessageDialog(info_msg)
 
-            if self.GetBool(G.CHK_PRESET):
-                show_info = True
-                messages.append("Render Presets (info)")
-
-            if self.GetBool(G.CHK_PATHS):
-                show_info = True
-                messages.append("Asset Paths (info)")
-
-            # Perform actions
-            if all_objects:
-                # Remove duplicates while preserving order
-                unique_objects = []
-                seen = set()
-                for obj in all_objects:
-                    if obj not in seen:
-                        unique_objects.append(obj)
-                        seen.add(obj)
-
-                _select_objects(doc, unique_objects)
-                safe_print(f"Selected {len(unique_objects)} objects: {', '.join(messages)}")
-                c4d.gui.MessageDialog(f"Selected {len(unique_objects)} objects with issues:\n\n" + "\n".join(messages))
-
-            if show_info:
-                # Show info dialogs for preset and paths
-                info_msg = ""
-
-                if self.GetBool(G.CHK_PRESET):
-                    info_msg += "RENDER PRESETS:\n"
-                    info_msg += "Please ensure only standard presets exist:\n"
-                    info_msg += "- previz\n- pre_render\n- render\n- stills\n\n"
-
-                if self.GetBool(G.CHK_PATHS):
-                    # Show detailed information about absolute paths
-                    if hasattr(self, '_paths_bad') and self._paths_bad:
-                        info_msg += "ABSOLUTE PATHS DETECTED:\n\n"
-                        for i, path_info in enumerate(self._paths_bad[:10], 1):
-                            asset_type = path_info.get('type', 'unknown')
-                            if 'texture' in asset_type or 'shader' in asset_type or 'redshift' in asset_type:
-                                mat_name = path_info.get('material', 'unknown')
-                                if 'redshift' in asset_type:
-                                    info_msg += f"{i}. REDSHIFT TEXTURE in '{mat_name}'\n"
-                                else:
-                                    info_msg += f"{i}. TEXTURE in '{mat_name}'\n"
-                            elif asset_type == 'alembic':
-                                info_msg += f"{i}. ALEMBIC in object '{path_info.get('object', 'unknown')}'\n"
-                            elif asset_type == 'alembic_tag':
-                                info_msg += f"{i}. ALEMBIC TAG in object '{path_info.get('object', 'unknown')}'\n"
-                            else:
-                                info_msg += f"{i}. {asset_type.upper()} in '{path_info.get('material', path_info.get('object', 'unknown'))}'\n"
-                            info_msg += f"   Path: {path_info.get('path', 'unknown')}\n\n"
-
-                        if len(self._paths_bad) > 10:
-                            info_msg += f"... and {len(self._paths_bad) - 10} more\n\n"
-
-                        info_msg += "\n⚠️  All asset paths MUST be RELATIVE!\n"
-                        info_msg += "Use Project → Collect Assets or fix manually.\n"
-                    else:
-                        info_msg += "ASSET PATHS:\n"
-                        info_msg += "All asset paths are relative - looking good!\n"
-
-                if info_msg:
-                    c4d.gui.MessageDialog(info_msg)
-
-            # If nothing was selected/shown
-            if not all_objects and not show_info:
-                c4d.gui.MessageDialog("Please tick at least one checkbox to select or view info")
-
-        elif cid == G.STEP:
-            # Update timer interval
-            interval = max(100, self.GetInt32(G.STEP) * 100)
-            self.SetTimer(interval)
-            safe_print(f"Update interval: {interval}ms")
+        elif cid == G.BTN_INFO_PATHS:
+            if self._paths_bad:
+                info_msg = f"ABSOLUTE PATHS: {len(self._paths_bad)} found\n\n"
+                for i, p in enumerate(self._paths_bad[:15], 1):
+                    asset_type = p.get('type', 'unknown')
+                    source = p.get('material', p.get('object', 'unknown'))
+                    info_msg += f"{i}. {asset_type.upper()} in '{source}'\n"
+                    info_msg += f"   {p.get('path', 'unknown')}\n\n"
+                if len(self._paths_bad) > 15:
+                    info_msg += f"... and {len(self._paths_bad) - 15} more\n\n"
+                info_msg += "Fix: Project > Save Project with Assets"
+            else:
+                info_msg = "All asset paths are relative. No issues found."
+            c4d.gui.MessageDialog(info_msg)
 
         return True
 
