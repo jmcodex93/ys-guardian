@@ -6,8 +6,30 @@ import json
 import time
 import sys
 import webbrowser
-import threading
 from collections import defaultdict
+
+# ---------------- Safe Print Function ----------------
+def safe_print(msg):
+    """Print to console with null safety"""
+    try:
+        if msg is not None:
+            print(f"[YS Guardian] {msg}")
+    except (UnicodeEncodeError, AttributeError):
+        pass  # Print failed, continue silently
+
+# ---------------- Platform Utilities ----------------
+def open_in_explorer(path):
+    """Open a file or folder in the system file manager (cross-platform)"""
+    import subprocess
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        elif sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", path])
+    except Exception as e:
+        safe_print(f"Could not open path: {path} - {e}")
 
 # Import maxon for node material access
 try:
@@ -33,7 +55,7 @@ except ImportError as e:
 
 # Plugin ID - change if ID collision
 PLUGIN_ID = 2099069
-PLUGIN_NAME = "YS Guardian v1.0.4"
+PLUGIN_NAME = "YS Guardian v1.1.0"
 
 # Preset names - normalized to lowercase with underscores
 # The system accepts both "pre_render" and "pre-render" (case-insensitive)
@@ -45,8 +67,6 @@ def normalize_preset_name(name):
         return ""
     return name.strip().lower().replace("-", "_").replace(" ", "_")
 
-# Icons removed - using text-based status indicators only
-
 # Performance settings for watcher
 MAX_OBJECTS_PER_CHECK = 1000  # Process in chunks
 CACHE_DURATION = 2.0  # Cache results for 2 seconds (optimized for performance)
@@ -54,15 +74,6 @@ CHECK_COOLDOWN = 0.1  # Minimum time between checks
 
 # Global settings file for artist name
 SETTINGS_FILE = "ys_guardian_settings.json"
-
-# ---------------- Safe Print Function ----------------
-def safe_print(msg):
-    """Print to console with null safety"""
-    try:
-        if msg is not None:
-            print(f"[YS Guardian] {msg}")
-    except (UnicodeEncodeError, AttributeError):
-        pass  # Print failed, continue silently
 
 # ---------------- Artist Name Persistence ----------------
 class GlobalSettings:
@@ -932,8 +943,7 @@ class SnapshotHandler:
         output_dir = RedshiftSnapshotConfig.get_scene_snapshot_dir(doc, artist_name)
 
         if output_dir and os.path.exists(output_dir):
-            # Open folder in Explorer
-            os.startfile(output_dir)
+            open_in_explorer(output_dir)
         else:
             c4d.gui.MessageDialog(f"Artist folder not found:\n{output_dir}")
 
@@ -981,77 +991,44 @@ class SnapshotHandler:
 # Global snapshot handler
 _snapshot_handler = SnapshotHandler()
 
-# ---------------- UI ----------------
+# ---------------- UI Widget IDs ----------------
 class G:
+    # Header controls
     SHOT = 1001
-    PRESET_DROPDOWN = 1002  # Dropdown for render preset selection
+    PRESET_DROPDOWN = 1002
     ARTIST = 1003
-    LIVE = 1004
     STEP = 1005
     CANVAS = 1008
+
+    # Stills management
     BTN_SNAPSHOT = 1009
     BTN_OPEN_FOLDER = 1010
-    BTN_ABC_RETIME = 1020
 
-    SHOW_L = 1011
-    SHOW_V = 1014
-    SHOW_K = 1015
-    SHOW_C = 1016
-    SHOW_P = 1017  # Show Preset conflicts
-
-    # Placeholder buttons (future features)
-    BTN_A = 1101
-    BTN_B = 1103
-    BTN_C = 1104
-    BTN_D = 1105
-
-    # Status text fields for quality checks
-    STATUS_LIGHTS = 1105
-    STATUS_VIS = 1106
-    STATUS_KEYS = 1107
-    STATUS_CAMS = 1108
-    STATUS_PRESET = 1109
-
-    # Checkboxes for quality checks
+    # Quality check checkboxes
     CHK_LIGHTS = 1110
     CHK_VIS = 1111
     CHK_KEYS = 1112
     CHK_CAMS = 1113
     CHK_PRESET = 1114
     CHK_PATHS = 1115
-
-    # Single select button for checked items
     BTN_SELECT_CHECKED = 1116
 
-    # New Quick Action buttons
+    # Quick Action buttons
+    BTN_ABC_RETIME = 1020
+    BTN_HIERARCHY_TO_LAYERS = 1101
+    BTN_SOLO = 1103
     BTN_VIBRATE_NULL = 1120
-    BTN_DROP_TO_FLOOR = 1122  # Drop to Floor functionality
-    BTN_CAM_SIMPLE = 1123  # Simple camera setup
-    BTN_CAM_SHAKEL = 1124  # Shakel camera setup
-    BTN_CAM_PATH = 1125  # Path camera setup
-    BTN_CREATE_HIERARCHY = 1126  # Create Hierarchy from nulls.c4d
-    BTN_PLACEHOLDER = 1109  # Fourth button placeholder
+    BTN_DROP_TO_FLOOR = 1122
+    BTN_CAM_SIMPLE = 1123
+    BTN_CAM_SHAKEL = 1124
+    BTN_CAM_PATH = 1125
+    BTN_CREATE_HIERARCHY = 1126
 
-    # Render preset tab buttons (legacy - kept for compatibility)
-    BTN_PRESET_PREVIZ = 1200
-    BTN_PRESET_PRERENDER = 1201
-    BTN_PRESET_RENDER = 1202
-    BTN_PRESET_STILLS = 1203
+    # Render preset controls
     BTN_FORCE_RENDER = 1204
-    BTN_FORCE_VERTICAL = 1205
-    BTN_FORCE_ALL = 1206  # Force all presets from template
+    BTN_FORCE_ALL = 1206
 
-    # Active Watchers as tabs (replacing checkboxes)
-    BTN_WATCH_LIGHTS = 1300
-    BTN_WATCH_VIS = 1301
-    BTN_WATCH_KEYS = 1302
-    BTN_WATCH_CAM = 1303
-    BTN_WATCH_PRESET = 1304
-
-    # Monitoring control buttons
-    BTN_MUTE_ALL = 1305
-
-    # GitHub and Bug Report buttons
+    # Footer buttons
     BTN_GITHUB = 1306
     BTN_BUG_REPORT = 1307
 
@@ -1062,8 +1039,6 @@ class YSPanel(gui.GeDialog):
         self._last_check_time = 0
         self._check_thread = None
         self.ua = None  # StatusArea will be created in CreateLayout
-        self._thread_lock = threading.Lock()
-        self._pending_results = None
         self._artist_name = ""
 
         # Store selection results
@@ -1308,11 +1283,11 @@ class YSPanel(gui.GeDialog):
         self.AddSeparatorH(12)
         self.GroupBegin(50, c4d.BFH_SCALEFIT, 8, 0)
         self.AddButton(G.BTN_CREATE_HIERARCHY,c4d.BFH_SCALEFIT,0,0,"Hier")
-        self.AddButton(G.BTN_A,c4d.BFH_SCALEFIT,0,0,"H→L")
-        self.AddButton(G.BTN_B,c4d.BFH_SCALEFIT,0,0,"Solo")
+        self.AddButton(G.BTN_HIERARCHY_TO_LAYERS,c4d.BFH_SCALEFIT,0,0,"H→L")
+        self.AddButton(G.BTN_SOLO,c4d.BFH_SCALEFIT,0,0,"Solo")
         self.AddButton(G.BTN_VIBRATE_NULL,c4d.BFH_SCALEFIT,0,0,"Vib")
         self.AddButton(G.BTN_DROP_TO_FLOOR,c4d.BFH_SCALEFIT,0,0,"Drop")
-        self.AddButton(G.BTN_ABC_RETIME, c4d.BFH_SCALEFIT, 0, 0, "ABC")
+        self.AddButton(G.BTN_HIERARCHY_TO_LAYERSBC_RETIME, c4d.BFH_SCALEFIT, 0, 0, "ABC")
         self.AddButton(G.BTN_CAM_SIMPLE,c4d.BFH_SCALEFIT,0,0,"Cam1")
         self.AddButton(G.BTN_CAM_SHAKEL,c4d.BFH_SCALEFIT,0,0,"Cam2")
         self.GroupEnd()
@@ -1323,12 +1298,12 @@ class YSPanel(gui.GeDialog):
         self.AddButton(G.BTN_OPEN_FOLDER, c4d.BFH_SCALEFIT, 0, 0, "Folder")
         self.AddButton(G.BTN_SNAPSHOT, c4d.BFH_SCALEFIT, 0, 0, "Still")
         self.AddButton(G.BTN_GITHUB, c4d.BFH_SCALEFIT, 0, 0, "Git↗")
-        self.AddButton(G.BTN_BUG_REPORT, c4d.BFH_SCALEFIT, 0, 0, "Bug↗")
+        self.AddButton(G.BTN_SOLOUG_REPORT, c4d.BFH_SCALEFIT, 0, 0, "Bug↗")
         self.GroupEnd()
 
         self.GroupEnd()  # Main container end
 
-        self.SetTimer(1500)  # Optimized: 1.5 seconds (was 500ms) - quality checks don't need sub-second updates
+        self.SetTimer(3000)  # Safety net only - CoreMessage handles instant updates
         return True
 
     def InitValues(self):
@@ -1364,18 +1339,32 @@ class YSPanel(gui.GeDialog):
         return True
 
     def Timer(self, msg):
-        # Monitoring is always active now (no mute functionality)
         doc = c4d.documents.GetActiveDocument()
 
         # Document change detection
         if doc is not self._last_doc:
-            check_cache.clear()  # Clear cache on document change
+            check_cache.clear()
             self._sync_from_doc(doc)
             self._refresh()
             self._last_doc = doc
 
-        # Always perform live updates (monitoring always active)
+        # Periodic refresh as safety net (CoreMessage handles instant updates)
         self._refresh()
+
+    def CoreMessage(self, id, msg):
+        """React instantly to scene changes instead of waiting for timer"""
+        if id == c4d.EVMSG_CHANGE:
+            check_cache.clear()
+            self._refresh()
+            return True
+
+        if id == 431000159:  # EVMSG_TAKECHANGED
+            doc = c4d.documents.GetActiveDocument()
+            if doc:
+                self._sync_from_doc(doc)
+            return True
+
+        return gui.GeDialog.CoreMessage(self, id, msg)
 
     def Command(self, cid, msg):
         doc = c4d.documents.GetActiveDocument()
@@ -1413,7 +1402,7 @@ class YSPanel(gui.GeDialog):
         elif cid == G.BTN_OPEN_FOLDER:
             self._open_artist_folder()
 
-        elif cid == G.BTN_ABC_RETIME:
+        elif cid == G.BTN_HIERARCHY_TO_LAYERSBC_RETIME:
             self._apply_abc_retime_tag()
 
         elif cid == G.BTN_VIBRATE_NULL:
@@ -1434,10 +1423,10 @@ class YSPanel(gui.GeDialog):
         elif cid == G.BTN_DROP_TO_FLOOR:
             self._drop_to_floor(doc)
 
-        elif cid == G.BTN_A:
+        elif cid == G.BTN_HIERARCHY_TO_LAYERS:
             self._hierarchy_to_layers(doc)
 
-        elif cid == G.BTN_B:
+        elif cid == G.BTN_SOLO:
             self._solo_layers(doc)
 
         elif cid == G.BTN_GITHUB:
@@ -1446,7 +1435,7 @@ class YSPanel(gui.GeDialog):
             webbrowser.open(github_url)
             safe_print(f"Opening GitHub repository: {github_url}")
 
-        elif cid == G.BTN_BUG_REPORT:
+        elif cid == G.BTN_SOLOUG_REPORT:
             # Open GitHub issues page for bug reports
             bug_url = "https://github.com/yamb0x/ys-guardian/issues/new"
             webbrowser.open(bug_url)
@@ -2653,7 +2642,7 @@ def Register():
         dat=YSPanelCmd()
     )
     if ok:
-        safe_print("Guardian panel v1.0.4 registered successfully")
+        safe_print("Guardian panel v1.1.0 registered successfully")
     else:
         safe_print("Failed to register Guardian panel")
     return ok
@@ -2661,7 +2650,7 @@ def Register():
 if __name__ == "__main__":
     # Print setup info using safe_print to avoid None returns in console
     safe_print("\n" + "="*50)
-    safe_print("YS Guardian Panel v1.0.4 - Complete Edition")
+    safe_print("YS Guardian Panel v1.1.0 - Complete Edition")
     safe_print("="*50)
 
     if SNAPSHOT_AVAILABLE and EXR_CONVERTER_AVAILABLE:
