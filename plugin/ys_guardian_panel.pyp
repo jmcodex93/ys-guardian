@@ -887,6 +887,178 @@ def check_output_paths(doc):
     check_cache.set(doc, "output", issues)
     return issues
 
+# ---------------- auto-fix functions ----------------
+def fix_lights(doc, lights_bad):
+    """Move stray lights into a 'lights' group null"""
+    if not lights_bad:
+        return 0
+
+    doc.StartUndo()
+
+    # Find or create the lights group
+    lights_group = None
+    obj = doc.GetFirstObject()
+    while obj:
+        if obj.GetType() == c4d.Onull and obj.GetName().strip().lower() in {"light", "lights", "lighting"}:
+            lights_group = obj
+            break
+        obj = obj.GetNext()
+
+    if not lights_group:
+        lights_group = c4d.BaseObject(c4d.Onull)
+        lights_group.SetName("lights")
+        doc.InsertObject(lights_group)
+        doc.AddUndo(c4d.UNDOTYPE_NEW, lights_group)
+
+    moved = 0
+    for light in lights_bad:
+        doc.AddUndo(c4d.UNDOTYPE_CHANGE, light)
+        light.Remove()
+        light.InsertUnderLast(lights_group)
+        moved += 1
+
+    doc.EndUndo()
+    check_cache.clear()
+    c4d.EventAdd()
+    return moved
+
+def fix_camera_shift(doc, cam_bad):
+    """Reset camera shift to 0 on all flagged cameras"""
+    if not cam_bad:
+        return 0
+
+    doc.StartUndo()
+    fixed = 0
+    for cam in cam_bad:
+        doc.AddUndo(c4d.UNDOTYPE_CHANGE, cam)
+        try:
+            cam[c4d.CAMERAOBJECT_FILM_OFFSET_X] = 0.0
+            cam[c4d.CAMERAOBJECT_FILM_OFFSET_Y] = 0.0
+            fixed += 1
+        except:
+            pass
+
+    doc.EndUndo()
+    check_cache.clear()
+    c4d.EventAdd()
+    return fixed
+
+def fix_unused_materials(doc, unused_mats):
+    """Delete unused materials from the scene"""
+    if not unused_mats:
+        return 0
+
+    doc.StartUndo()
+    deleted = 0
+    for mat in unused_mats:
+        doc.AddUndo(c4d.UNDOTYPE_DELETE, mat)
+        mat.Remove()
+        deleted += 1
+
+    doc.EndUndo()
+    check_cache.clear()
+    c4d.EventAdd()
+    return deleted
+
+def export_qc_report(doc, results, artist_name):
+    """Export QC report as JSON to a user-chosen location"""
+    import json as json_mod
+    from datetime import datetime
+
+    # Build report
+    report = {
+        "report": "YS Guardian QC Report",
+        "version": PLUGIN_NAME,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "scene": doc.GetDocumentName() or "untitled",
+        "path": doc.GetDocumentPath() or "",
+        "artist": artist_name or "",
+        "shot_id": "",
+        "checks": {}
+    }
+
+    # Get shot ID
+    try:
+        td = doc.GetTakeData()
+        if td:
+            main_take = td.GetMainTake()
+            if main_take:
+                report["shot_id"] = main_take.GetName() or ""
+    except:
+        pass
+
+    # Populate checks
+    for key, label, items in [
+        ("lights", "Lights outside group", results.get("lights_bad", [])),
+        ("visibility", "Visibility mismatches", results.get("vis_bad", [])),
+        ("keyframes", "Multi-axis keyframes", results.get("keys_bad", [])),
+        ("camera_shift", "Camera shift != 0", results.get("cam_bad", [])),
+        ("unused_materials", "Unused materials", results.get("unused_mats_bad", [])),
+        ("default_names", "Default/generic names", results.get("names_bad", [])),
+    ]:
+        obj_list = []
+        for item in (items or []):
+            try:
+                obj_list.append(item.GetName() or "unnamed")
+            except:
+                obj_list.append(str(item))
+        report["checks"][key] = {
+            "status": "PASS" if not obj_list else "FAIL",
+            "count": len(obj_list),
+            "label": label,
+            "items": obj_list[:50],
+        }
+
+    # Info-only checks
+    for key, label, count in [
+        ("render_presets", "Non-standard presets", results.get("rdc_count", 0)),
+        ("asset_paths", "Absolute asset paths", results.get("paths_count", 0)),
+        ("output_paths", "Output path issues", results.get("output_count", 0)),
+    ]:
+        report["checks"][key] = {
+            "status": "PASS" if count == 0 else "FAIL",
+            "count": count,
+            "label": label,
+        }
+
+    # Add detail for paths
+    if results.get("paths_bad"):
+        report["checks"]["asset_paths"]["items"] = [
+            f"{p.get('type')}: {p.get('material', p.get('object', '?'))} -> {p.get('path', '?')}"
+            for p in results["paths_bad"][:20]
+        ]
+    if results.get("output_bad"):
+        report["checks"]["output_paths"]["items"] = [
+            f"[{i['preset']}] {i['issue']}" for i in results["output_bad"][:10]
+        ]
+
+    # Summary
+    total = len(report["checks"])
+    passed = sum(1 for c in report["checks"].values() if c["status"] == "PASS")
+    report["summary"] = {
+        "total_checks": total,
+        "passed": passed,
+        "failed": total - passed,
+        "score": f"{passed}/{total}"
+    }
+
+    # Ask user where to save
+    save_path = c4d.storage.SaveDialog(
+        title="Save QC Report",
+        force_suffix="json",
+    )
+
+    if not save_path:
+        return None
+
+    if not save_path.endswith(".json"):
+        save_path += ".json"
+
+    with open(save_path, 'w') as f:
+        json_mod.dump(report, f, indent=2, ensure_ascii=False)
+
+    return save_path
+
 # ---------------- UI StatusArea ----------------
 class StatusArea(gui.GeUserArea):
     def __init__(self):
@@ -1195,6 +1367,14 @@ class G:
     BTN_SEL_NAMES = 1137
     BTN_INFO_OUTPUT = 1138
 
+    # Auto-fix buttons
+    BTN_FIX_LIGHTS = 1140
+    BTN_FIX_CAMS = 1141
+    BTN_FIX_UNUSED_MATS = 1142
+
+    # Export
+    BTN_EXPORT_QC = 1150
+
     # Render preset
     PRESET_DROPDOWN = 1002
     BTN_FORCE_RENDER = 1204
@@ -1460,19 +1640,37 @@ class YSPanel(gui.GeDialog):
         self.ua = StatusArea()
         self.AttachUserArea(self.ua, G.CANVAS)
 
-        # Right: per-check action buttons (matched to StatusArea row spacing)
-        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 1, 6)
+        # Right: per-check Select + Fix buttons (2 columns, matched to StatusArea rows)
+        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 9)
         self.GroupBorderSpace(0, 4, 0, 4)
-        self.GroupSpace(0, 4)
-        self.AddButton(G.BTN_SEL_LIGHTS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
-        self.AddButton(G.BTN_SEL_VIS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
-        self.AddButton(G.BTN_SEL_KEYS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
-        self.AddButton(G.BTN_SEL_CAMS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
-        self.AddButton(G.BTN_INFO_PRESET, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
-        self.AddButton(G.BTN_INFO_PATHS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
-        self.AddButton(G.BTN_SEL_UNUSED_MATS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
-        self.AddButton(G.BTN_SEL_NAMES, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Select")
-        self.AddButton(G.BTN_INFO_OUTPUT, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 55, 0, "Info")
+        self.GroupSpace(2, 4)
+        # Row: LIGHTS
+        self.AddButton(G.BTN_SEL_LIGHTS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
+        self.AddButton(G.BTN_FIX_LIGHTS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "Fix")
+        # Row: VISIBILITY
+        self.AddButton(G.BTN_SEL_VIS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: KEYFRAMES
+        self.AddButton(G.BTN_SEL_KEYS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: CAMERAS
+        self.AddButton(G.BTN_SEL_CAMS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
+        self.AddButton(G.BTN_FIX_CAMS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "Fix")
+        # Row: PRESETS
+        self.AddButton(G.BTN_INFO_PRESET, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: PATHS
+        self.AddButton(G.BTN_INFO_PATHS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: UNUSED MATS
+        self.AddButton(G.BTN_SEL_UNUSED_MATS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
+        self.AddButton(G.BTN_FIX_UNUSED_MATS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "Fix")
+        # Row: NAMES
+        self.AddButton(G.BTN_SEL_NAMES, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: OUTPUT
+        self.AddButton(G.BTN_INFO_OUTPUT, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         self.GroupEnd()
 
         self.GroupEnd()
@@ -1511,9 +1709,10 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(59, c4d.BFH_SCALEFIT, 1, 0, "Output")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(60, c4d.BFH_SCALEFIT, 2, 0)
+        self.GroupBegin(60, c4d.BFH_SCALEFIT, 3, 0)
         self.AddButton(G.BTN_OPEN_FOLDER, c4d.BFH_SCALEFIT, 0, 0, "Open Folder")
         self.AddButton(G.BTN_SNAPSHOT, c4d.BFH_SCALEFIT, 0, 0, "Save Still")
+        self.AddButton(G.BTN_EXPORT_QC, c4d.BFH_SCALEFIT, 0, 0, "Export QC")
         self.GroupEnd()
         self.GroupEnd()
 
@@ -1758,6 +1957,53 @@ class YSPanel(gui.GeDialog):
             else:
                 info_msg = "All output paths are properly configured."
             c4d.gui.MessageDialog(info_msg)
+
+        # ── Auto-fix handlers ──
+        elif cid == G.BTN_FIX_LIGHTS:
+            if self._lights_bad:
+                count = fix_lights(doc, self._lights_bad)
+                safe_print(f"Moved {count} lights into 'lights' group")
+                c4d.gui.MessageDialog(f"Moved {count} light(s) into 'lights' group.\n\nUndo available (Ctrl+Z).")
+            else:
+                safe_print("No light issues to fix")
+
+        elif cid == G.BTN_FIX_CAMS:
+            if self._cam_bad:
+                count = fix_camera_shift(doc, self._cam_bad)
+                safe_print(f"Reset shift on {count} cameras")
+                c4d.gui.MessageDialog(f"Reset shift to 0 on {count} camera(s).\n\nUndo available (Ctrl+Z).")
+            else:
+                safe_print("No camera shift issues to fix")
+
+        elif cid == G.BTN_FIX_UNUSED_MATS:
+            if self._unused_mats_bad:
+                count = len(self._unused_mats_bad)
+                if c4d.gui.QuestionDialog(f"Delete {count} unused material(s)?\n\nThis can be undone (Ctrl+Z)."):
+                    deleted = fix_unused_materials(doc, self._unused_mats_bad)
+                    safe_print(f"Deleted {deleted} unused materials")
+                    self._unused_mats_idx = 0
+            else:
+                safe_print("No unused materials to delete")
+
+        # ── Export QC Report ──
+        elif cid == G.BTN_EXPORT_QC:
+            results = {
+                "lights_bad": self._lights_bad,
+                "vis_bad": self._vis_bad,
+                "keys_bad": self._keys_bad,
+                "cam_bad": self._cam_bad,
+                "rdc_count": int(check_render_conflicts(doc) or 0),
+                "paths_bad": self._paths_bad,
+                "paths_count": len(self._paths_bad) if self._paths_bad else 0,
+                "unused_mats_bad": self._unused_mats_bad,
+                "names_bad": self._names_bad,
+                "output_bad": self._output_bad,
+                "output_count": len(self._output_bad) if self._output_bad else 0,
+            }
+            save_path = export_qc_report(doc, results, self._artist_name)
+            if save_path:
+                safe_print(f"QC report saved to: {save_path}")
+                c4d.gui.MessageDialog(f"QC Report saved!\n\n{save_path}")
 
         return True
 
