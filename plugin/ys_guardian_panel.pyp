@@ -1199,11 +1199,11 @@ class StatusArea(gui.GeUserArea):
                 elif mode == "textures":
                     if val > 0:
                         status = "[FAIL]"
-                        message = f"{val} texture issue(s)"
+                        message = f"{val} asset issue(s)"
                         text_col = c4d.Vector(1, 0.3, 0.3)
                     else:
                         status = "[ OK ]"
-                        message = "All textures OK"
+                        message = "All assets OK"
                         text_col = c4d.Vector(0.3, 1, 0.3)
                 elif mode == "unused_mats":
                     if val > 0:
@@ -1274,7 +1274,7 @@ class StatusArea(gui.GeUserArea):
                 ("Keyframes", "keys", "keys"),
                 ("Cameras", "cam", "cam"),
                 ("Presets", "rdc", "rdc"),
-                ("Textures", "textures", "textures"),
+                ("Assets", "textures", "textures"),
                 ("Materials", "unused_mats", "unused_mats"),
                 ("Naming", "names", "names"),
                 ("Output", "output", "output"),
@@ -1926,7 +1926,7 @@ class YSPanel(gui.GeDialog):
             if self._textures_bad:
                 absolute = [t for t in self._textures_bad if t["issue"] == "absolute"]
                 missing = [t for t in self._textures_bad if t["issue"] == "missing"]
-                info_msg = f"TEXTURE ISSUES: {len(self._textures_bad)}\n\n"
+                info_msg = f"ASSET ISSUES: {len(self._textures_bad)}\n\n"
                 if absolute:
                     info_msg += f"ABSOLUTE PATHS ({len(absolute)}):\n"
                     for i, t in enumerate(absolute[:10], 1):
@@ -1939,7 +1939,7 @@ class YSPanel(gui.GeDialog):
                     info_msg += "\n"
                 info_msg += "Fix: Project > Save Project with Assets"
             else:
-                info_msg = "All textures OK. No absolute paths or missing files."
+                info_msg = "All assets OK. No absolute paths or missing files."
             c4d.gui.MessageDialog(info_msg)
 
         elif cid == G.BTN_SEL_UNUSED_MATS:
