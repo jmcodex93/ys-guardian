@@ -738,7 +738,7 @@ def _is_absolute_path(filepath):
 
 # ---------------- unused materials ----------------
 def check_unused_materials(doc):
-    """Check for materials not assigned to any object"""
+    """Check for materials not assigned to any object via any tag type"""
     cached = check_cache.get(doc, "unused_mats")
     if cached is not None:
         return cached
@@ -750,7 +750,7 @@ def check_unused_materials(doc):
             check_cache.set(doc, "unused_mats", unused)
             return unused
 
-        # Collect all materials referenced by texture tags
+        # Collect all materials referenced by ANY tag on ANY object
         used_mats = set()
         first = doc.GetFirstObject()
         if first:
@@ -758,13 +758,42 @@ def check_unused_materials(doc):
                 if not obj:
                     continue
                 for tag in obj.GetTags():
+                    # Check texture tags (standard material assignment)
                     if tag.GetType() == c4d.Ttexture:
                         mat = tag[c4d.TEXTURETAG_MATERIAL]
                         if mat:
-                            used_mats.add(id(mat))
+                            used_mats.add(mat.GetName())
+                    # Check any tag that might link a material
+                    try:
+                        bc = tag.GetDataInstance()
+                        if bc:
+                            for desc_id, _ in bc:
+                                link = bc.GetLink(desc_id, doc)
+                                if link and link.IsInstanceOf(c4d.Mbase):
+                                    used_mats.add(link.GetName())
+                    except:
+                        pass
+
+        # Also check materials referenced by other materials (multi/blend materials)
+        for mat in materials:
+            try:
+                shader = mat.GetFirstShader()
+                while shader:
+                    try:
+                        bc = shader.GetDataInstance()
+                        if bc:
+                            for desc_id, _ in bc:
+                                link = bc.GetLink(desc_id, doc)
+                                if link and link.IsInstanceOf(c4d.Mbase):
+                                    used_mats.add(link.GetName())
+                    except:
+                        pass
+                    shader = shader.GetNext()
+            except:
+                pass
 
         for mat in materials:
-            if id(mat) not in used_mats:
+            if mat.GetName() not in used_mats:
                 unused.append(mat)
 
     except Exception as e:
@@ -1202,7 +1231,14 @@ class YSPanel(gui.GeDialog):
         self._vis_bad = []
         self._keys_bad = []
         self._cam_bad = []
-        self._preset_bad = []
+        self._paths_bad = []
+        self._unused_mats_bad = []
+        self._names_bad = []
+        self._output_bad = []
+
+        # Cycling indices for one-by-one selection
+        self._unused_mats_idx = 0
+        self._names_idx = 0
 
     # ---- read scene -> UI
     def _sync_from_doc(self, doc):
@@ -1381,6 +1417,12 @@ class YSPanel(gui.GeDialog):
             self._keys_bad = keys_bad
             self._cam_bad = cam_bad
             self._paths_bad = paths_bad
+            # Reset cycling indices when results change
+            if unused_mats_bad != self._unused_mats_bad:
+                self._unused_mats_idx = 0
+            if names_bad != self._names_bad:
+                self._names_idx = 0
+
             self._unused_mats_bad = unused_mats_bad
             self._names_bad = names_bad
             self._output_bad = output_bad
@@ -1675,20 +1717,35 @@ class YSPanel(gui.GeDialog):
             c4d.gui.MessageDialog(info_msg)
 
         elif cid == G.BTN_SEL_UNUSED_MATS:
-            if hasattr(self, '_unused_mats_bad') and self._unused_mats_bad:
-                # Select unused materials in Material Manager
-                doc.SetSelection(None)
-                for mat in self._unused_mats_bad:
-                    mat.SetBit(c4d.BIT_ACTIVE)
+            if self._unused_mats_bad:
+                # Cycle through unused materials one by one
+                if self._unused_mats_idx >= len(self._unused_mats_bad):
+                    self._unused_mats_idx = 0
+
+                mat = self._unused_mats_bad[self._unused_mats_idx]
+                # Deselect all materials first
+                for m in doc.GetMaterials():
+                    m.DelBit(c4d.BIT_ACTIVE)
+                # Select this one
+                mat.SetBit(c4d.BIT_ACTIVE)
                 c4d.EventAdd()
-                safe_print(f"Selected {len(self._unused_mats_bad)} unused materials")
+
+                safe_print(f"Unused material [{self._unused_mats_idx + 1}/{len(self._unused_mats_bad)}]: '{mat.GetName()}'")
+                self._unused_mats_idx += 1
             else:
                 safe_print("No unused materials found")
 
         elif cid == G.BTN_SEL_NAMES:
-            if hasattr(self, '_names_bad') and self._names_bad:
-                _select_objects(doc, self._names_bad)
-                safe_print(f"Selected {len(self._names_bad)} objects with default names")
+            if self._names_bad:
+                # Cycle through default-named objects one by one
+                if self._names_idx >= len(self._names_bad):
+                    self._names_idx = 0
+
+                obj = self._names_bad[self._names_idx]
+                _select_objects(doc, [obj])
+
+                safe_print(f"Default name [{self._names_idx + 1}/{len(self._names_bad)}]: '{obj.GetName()}'")
+                self._names_idx += 1
             else:
                 safe_print("No naming issues found")
 
