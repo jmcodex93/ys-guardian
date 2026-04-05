@@ -1663,7 +1663,7 @@ class YSPanel(gui.GeDialog):
         self.AttachUserArea(self.ua, G.CANVAS)
 
         # Right: per-check Select + Fix buttons (2 columns, matched to StatusArea rows)
-        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 8)
+        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 9)
         self.GroupBorderSpace(0, 3, 0, 3)
         self.GroupSpace(2, 3)
         # Row: LIGHTS
@@ -1753,8 +1753,8 @@ class YSPanel(gui.GeDialog):
         # Initialize watcher states (all active by default - always enabled now)
         self._watcher_states = {
             'lights': True, 'vis': True, 'keys': True, 'cam': True,
-            'rdc': True, 'paths': True, 'unused_mats': True,
-            'names': True, 'output': True, 'missing_tex': True, 'rs_tex': True,
+            'rdc': True, 'textures': True, 'unused_mats': True,
+            'names': True, 'output': True,
         }
         self._all_muted = False
 
