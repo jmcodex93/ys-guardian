@@ -55,7 +55,7 @@ except ImportError as e:
 
 # Plugin ID - change if ID collision
 PLUGIN_ID = 2099069
-PLUGIN_NAME = "YS Guardian v1.1.0"
+PLUGIN_NAME = "YS Guardian v1.2.0"
 
 # Preset names - normalized to lowercase with underscores
 # The system accepts both "pre_render" and "pre-render" (case-insensitive)
@@ -70,7 +70,7 @@ def normalize_preset_name(name):
 # Performance settings for watcher
 MAX_OBJECTS_PER_CHECK = 1000  # Process in chunks
 CACHE_DURATION = 2.0  # Cache results for 2 seconds (optimized for performance)
-CHECK_COOLDOWN = 0.1  # Minimum time between checks
+CHECK_COOLDOWN = 0.5  # Minimum time between checks
 
 # Global settings file for artist name
 SETTINGS_FILE = "ys_guardian_settings.json"
@@ -95,7 +95,7 @@ class GlobalSettings:
                 with open(settings_path, 'r') as f:
                     settings = json.load(f)
                     return settings.get('artist_name', '')
-            except:
+            except Exception:
                 pass
 
         return ''
@@ -110,7 +110,7 @@ class GlobalSettings:
             try:
                 with open(settings_path, 'r') as f:
                     settings = json.load(f)
-            except:
+            except Exception:
                 pass
 
         settings['artist_name'] = artist_name
@@ -120,7 +120,7 @@ class GlobalSettings:
                 json.dump(settings, f, indent=2)
             verified_name = GlobalSettings.load_artist_name()
             return verified_name == artist_name
-        except:
+        except Exception:
             return False
 
 # ---------------- Performance Cache ----------------
@@ -202,7 +202,7 @@ def _any_ancestor_named(o, names_lower):
             nm = (p.GetName() or "").strip().lower()
             if nm in names_lower:
                 return True
-        except:
+        except Exception:
             pass
         p = p.GetUp()
         depth += 1
@@ -241,7 +241,7 @@ def _is_light_obj(op):
                 tn = (op.GetTypeName() or "").lower()
                 if "light" in tn:
                     is_light = True
-    except:
+    except Exception:
         pass
 
     # Cache result
@@ -303,13 +303,13 @@ def check_visibility_traps(doc):
     def ed(o):
         try:
             return o[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR]
-        except:
+        except Exception:
             return c4d.OBJECT_ON
 
     def rd(o):
         try:
             return o[c4d.ID_BASEOBJECT_VISIBILITY_RENDER]
-        except:
+        except Exception:
             return c4d.OBJECT_ON
 
     try:
@@ -412,7 +412,7 @@ def check_keys(doc):
                         elif first_id == c4d.ID_BASEOBJECT_ROTATION:
                             if did.GetDepth() >= 2:
                                 rot_axes.add(did[1].id)
-                    except:
+                    except Exception:
                         continue
 
                 if len(pos_axes) > 1 or len(rot_axes) > 1:
@@ -423,7 +423,7 @@ def check_keys(doc):
                     safe_print(f"Too many keyframe issues ({len(offenders)}+), stopping check")
                     break
 
-            except:
+            except Exception:
                 continue
 
     except Exception as e:
@@ -436,26 +436,15 @@ def check_keys(doc):
 RS_CAMERA_ID = 1057516
 
 def _camera_shift_values(o):
-    """Get camera shift values efficiently"""
+    """Get camera shift values"""
     if not o:
         return 0.0, 0.0
-
-    # Try standard attributes first (fastest)
-    attrs = [
-        (c4d.CAMERAOBJECT_FILM_OFFSET_X, c4d.CAMERAOBJECT_FILM_OFFSET_Y),
-    ]
-
-    for xid, yid in attrs:
-        try:
-            x = float(o[xid] or 0.0)
-            y = float(o[yid] or 0.0)
-            if abs(x) > 1e-6 or abs(y) > 1e-6:
-                return x, y
-        except:
-            pass
-
-    # Skip slow description iteration for performance
-    return 0.0, 0.0
+    try:
+        x = float(o[c4d.CAMERAOBJECT_FILM_OFFSET_X] or 0.0)
+        y = float(o[c4d.CAMERAOBJECT_FILM_OFFSET_Y] or 0.0)
+        return x, y
+    except Exception:
+        return 0.0, 0.0
 
 def check_camera_shift(doc):
     """Check for cameras with non-zero shift"""
@@ -490,7 +479,7 @@ def check_camera_shift(doc):
                     safe_print(f"Too many camera shift issues ({len(bad)}+), stopping check")
                     break
 
-            except:
+            except Exception:
                 continue
 
     except Exception as e:
@@ -523,7 +512,7 @@ def check_render_conflicts(doc):
                     name_counts[name] += 1
                 else:
                     extras += 1
-            except:
+            except Exception:
                 pass
 
             rd = rd.GetNext()
@@ -585,7 +574,7 @@ def check_unused_materials(doc):
                                 link = bc.GetLink(desc_id, doc)
                                 if link and link.IsInstanceOf(c4d.Mbase):
                                     used_mats.add(link.GetName())
-                    except:
+                    except Exception:
                         pass
 
         # Also check materials referenced by other materials (multi/blend materials)
@@ -600,10 +589,10 @@ def check_unused_materials(doc):
                                 link = bc.GetLink(desc_id, doc)
                                 if link and link.IsInstanceOf(c4d.Mbase):
                                     used_mats.add(link.GetName())
-                    except:
+                    except Exception:
                         pass
                     shader = shader.GetNext()
-            except:
+            except Exception:
                 pass
 
         for mat in materials:
@@ -689,7 +678,7 @@ def check_output_paths(doc):
                     mp_path = rd[c4d.RDATA_MULTIPASS_FILENAME] or ""
                     if not mp_path.strip():
                         issues.append({"preset": name, "issue": "empty multi-pass path"})
-            except:
+            except Exception:
                 pass
 
             rd = rd.GetNext()
@@ -755,7 +744,7 @@ def check_textures_unified(doc):
                         fp = shader[c4d.BITMAPSHADER_FILENAME]
                         if fp:
                             add_issue(f"Shader in '{mat_name}'", str(fp))
-                    except:
+                    except Exception:
                         pass
                 shader = shader.GetNext()
 
@@ -768,9 +757,9 @@ def check_textures_unified(doc):
                             fp = bc.GetFilename(desc_id)
                             if fp and str(fp).strip():
                                 add_issue(f"Material '{mat_name}'", str(fp))
-                        except:
+                        except Exception:
                             pass
-            except:
+            except Exception:
                 pass
 
             # --- RS Node graph ---
@@ -787,10 +776,10 @@ def check_textures_unified(doc):
                                     val = None
                                     try:
                                         val = port.GetPortValue()
-                                    except:
+                                    except Exception:
                                         try:
                                             val = port.GetDefaultValue()
-                                        except:
+                                        except Exception:
                                             return None
                                     if val is None:
                                         return None
@@ -798,13 +787,13 @@ def check_textures_unified(doc):
                                     try:
                                         if hasattr(val, 'GetSystemPath'):
                                             filepath = str(val.GetSystemPath())
-                                    except:
+                                    except Exception:
                                         pass
                                     if not filepath:
                                         try:
                                             if hasattr(val, 'ToString'):
                                                 filepath = str(val.ToString())
-                                        except:
+                                        except Exception:
                                             pass
                                     if not filepath:
                                         filepath = str(val)
@@ -814,7 +803,7 @@ def check_textures_unified(doc):
                                     if filepath.startswith("asset:") or filepath.startswith("preset:"):
                                         return None
                                     return filepath
-                                except:
+                                except Exception:
                                     return None
 
                             def scan_ports(port):
@@ -826,7 +815,7 @@ def check_textures_unified(doc):
                                 try:
                                     for child in port.GetChildren():
                                         scan_ports(child)
-                                except:
+                                except Exception:
                                     pass
 
                             def scan_node(node, depth=0):
@@ -839,11 +828,11 @@ def check_textures_unified(doc):
                                             scan_ports(port)
                                     for child in node.GetChildren():
                                         scan_node(child, depth + 1)
-                                except:
+                                except Exception:
                                     pass
 
                             scan_node(root)
-                except:
+                except Exception:
                     pass
 
             if len(issues) > 50:
@@ -860,7 +849,7 @@ def check_textures_unified(doc):
                         fp = obj[c4d.ALEMBIC_PATH]
                         if fp:
                             add_issue(f"Alembic '{obj.GetName()}'", str(fp))
-                    except:
+                    except Exception:
                         pass
                 if len(issues) > 50:
                     break
@@ -894,7 +883,7 @@ def get_scene_stats(doc):
                     target = cache if cache else obj
                     if target.IsInstanceOf(c4d.Opolygon):
                         stats["polygons"] += target.GetPolygonCount()
-                except:
+                except Exception:
                     pass
                 if _is_light_obj(obj):
                     stats["lights"] += 1
@@ -953,7 +942,7 @@ def fix_camera_shift(doc, cam_bad):
             cam[c4d.CAMERAOBJECT_FILM_OFFSET_X] = 0.0
             cam[c4d.CAMERAOBJECT_FILM_OFFSET_Y] = 0.0
             fixed += 1
-        except:
+        except Exception:
             pass
 
     doc.EndUndo()
@@ -980,7 +969,6 @@ def fix_unused_materials(doc, unused_mats):
 
 def export_qc_report(doc, results, artist_name):
     """Export QC report as JSON to a user-chosen location"""
-    import json as json_mod
     from datetime import datetime
 
     # Build report
@@ -1002,7 +990,7 @@ def export_qc_report(doc, results, artist_name):
             main_take = td.GetMainTake()
             if main_take:
                 report["shot_id"] = main_take.GetName() or ""
-    except:
+    except Exception:
         pass
 
     # Populate checks
@@ -1018,7 +1006,7 @@ def export_qc_report(doc, results, artist_name):
         for item in (items or []):
             try:
                 obj_list.append(item.GetName() or "unnamed")
-            except:
+            except Exception:
                 obj_list.append(str(item))
         report["checks"][key] = {
             "status": "PASS" if not obj_list else "FAIL",
@@ -1080,21 +1068,45 @@ def export_qc_report(doc, results, artist_name):
         save_path += ".json"
 
     with open(save_path, 'w') as f:
-        json_mod.dump(report, f, indent=2, ensure_ascii=False)
+        json.dump(report, f, indent=2, ensure_ascii=False)
 
     return save_path
 
 # ---------------- UI StatusArea ----------------
+# Pre-allocated colors to avoid GC pressure in DrawMsg
+_COL_GREEN = c4d.Vector(0.3, 1, 0.3)
+_COL_RED = c4d.Vector(1, 0.3, 0.3)
+_COL_YELLOW = c4d.Vector(1, 1, 0.3)
+_COL_GRAY = c4d.Vector(0.5, 0.5, 0.5)
+_COL_BG = c4d.Vector(0.08, 0.08, 0.08)
+_COL_BLACK = c4d.Vector(0, 0, 0)
+_COL_BG_OK = c4d.Vector(0.15, 0.15, 0.15)
+_COL_BG_WARN = c4d.Vector(0.25, 0.20, 0.10)
+_COL_BG_FAIL = c4d.Vector(0.25, 0.10, 0.10)
+
+# Check display config: (severity, ok_message, fail_template, name_key_for_first)
+_CHECK_DISPLAY = {
+    "lights":      ("FAIL", "All lights properly organized", "{n} lights outside lights group", None),
+    "vis":         ("WARN", "Visibility settings consistent", "Visibility mismatch on '{first}'", "vis_names"),
+    "keys":        ("WARN", "Keyframes properly configured", "Multi-axis keys on '{first}'", "keys_names"),
+    "cam":         ("FAIL", "Camera shifts at 0%", "{n} camera(s) with non-zero shift", None),
+    "rdc":         ("FAIL", "Render presets compliant", "{n} non-standard render preset(s)", None),
+    "textures":    ("FAIL", "All assets OK", "{n} asset issue(s)", None),
+    "unused_mats": ("WARN", "All materials assigned", "{n} unused material(s)", None),
+    "names":       ("WARN", "All objects named", "Default name '{first}'", "names_list"),
+    "output":      ("FAIL", "Output paths configured", "{n} output path issue(s)", None),
+}
+
 class StatusArea(gui.GeUserArea):
     def __init__(self):
         super().__init__()
         self.data = {}
-        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "textures": True, "unused_mats": True, "names": True, "output": True}
+        self.show = {k: True for k in _CHECK_DISPLAY}
         self.pad = 3
-        self.rowh = 20  # Compact rows, aligned with button column
-        self.font = c4d.FONT_MONOSPACED  # Terminal-style monospace font
+        self.rowh = 20
+        self.font = c4d.FONT_MONOSPACED
         self.last_draw_time = 0
-        self.min_draw_interval = 0.05  # Minimum 50ms between redraws
+        self.min_draw_interval = 0.05
 
     def GetMinSize(self):
         rows = sum(1 for _, v in self.show.items() if v)
@@ -1110,181 +1122,68 @@ class StatusArea(gui.GeUserArea):
             self.Redraw()
             self.last_draw_time = now
 
-    def _sev(self, n):
-        # Terminal-style colors - like C4D script manager console
-        # Using darker, more muted colors for terminal aesthetic
-        if n <= 0:
-            # Green for OK - muted terminal green
-            return ("[ OK ]", c4d.Vector(0.15, 0.15, 0.15))  # Dark gray background
-        if n < 5:
-            # Yellow/amber for warnings - terminal amber
-            return ("[WARN]", c4d.Vector(0.25, 0.20, 0.10))  # Dark amber background
-        # Red for errors - terminal red
-        return ("[FAIL]", c4d.Vector(0.25, 0.10, 0.10))  # Dark red background
-
-    def _fg(self, bg):
-        lum = 0.2126*bg.x + 0.7152*bg.y + 0.0722*bg.z
-        return c4d.Vector(0,0,0) if lum > 0.55 else c4d.Vector(1,1,1)
-
     def DrawMsg(self, x1, y1, x2, y2, msg):
         try:
             self.OffScreenOn()
-            w = self.GetWidth(); h = self.GetHeight()
+            w = self.GetWidth()
+            h = self.GetHeight()
 
-            # Terminal-style dark background (like C4D script manager)
-            self.DrawSetPen(c4d.Vector(0.08, 0.08, 0.08))
-            self.DrawRectangle(0,0,w,h)
+            self.DrawSetPen(_COL_BG)
+            self.DrawRectangle(0, 0, w, h)
 
             try:
                 self.DrawSetFont(self.font)
-            except:
+            except Exception:
                 pass
 
-            x=self.pad; y=self.pad
+            x = self.pad
+            y = self.pad
 
-            def row(label, key, mode="default"):
-                nonlocal y
+            for label, key in [("Lights","lights"), ("Visibility","vis"), ("Keyframes","keys"),
+                               ("Cameras","cam"), ("Presets","rdc"), ("Assets","textures"),
+                               ("Materials","unused_mats"), ("Naming","names"), ("Output","output")]:
+                if not self.show.get(key, False):
+                    continue
+
                 val = int(self.data.get(key, 0))
+                cfg = _CHECK_DISPLAY.get(key)
+                if not cfg:
+                    continue
 
-                # Terminal-style status and message
-                if mode == "lights":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} lights outside lights group"
-                        text_col = c4d.Vector(1, 0.3, 0.3)  # Red text
-                    else:
-                        status = "[ OK ]"
-                        message = "All lights properly organized"
-                        text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
-                elif mode == "vis":
-                    if val > 0:
-                        status = "[WARN]"
-                        names = self.data.get("vis_names", [])
+                severity, ok_msg, fail_tpl, name_key = cfg
+
+                if val > 0:
+                    status = f"[{severity}]"
+                    first = ""
+                    if name_key:
+                        names = self.data.get(name_key, [])
                         first = names[0] if names else "object"
-                        message = f"Visibility mismatch on '{first}'" + (f" (+{val-1} more)" if val > 1 else "")
-                        text_col = c4d.Vector(1, 1, 0.3)  # Yellow text
-                    else:
-                        status = "[ OK ]"
-                        message = "Visibility settings consistent"
-                        text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
-                elif mode == "keys":
-                    if val > 0:
-                        status = "[WARN]"
-                        names = self.data.get("keys_names", [])
-                        first = names[0] if names else "object"
-                        message = f"Multi-axis keys on '{first}'" + (f" (+{val-1} more)" if val > 1 else "")
-                        text_col = c4d.Vector(1, 1, 0.3)  # Yellow text
-                    else:
-                        status = "[ OK ]"
-                        message = "Keyframes properly configured"
-                        text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
-                elif mode == "cam":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} camera(s) with non-zero shift"
-                        text_col = c4d.Vector(1, 0.3, 0.3)  # Red text
-                    else:
-                        status = "[ OK ]"
-                        message = "Camera shifts at 0%"
-                        text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
-                elif mode == "rdc":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} non-standard render preset(s)"
-                        text_col = c4d.Vector(1, 0.3, 0.3)  # Red text
-                    else:
-                        status = "[ OK ]"
-                        message = "Render presets compliant"
-                        text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
-                elif mode == "textures":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} asset issue(s)"
-                        text_col = c4d.Vector(1, 0.3, 0.3)
-                    else:
-                        status = "[ OK ]"
-                        message = "All assets OK"
-                        text_col = c4d.Vector(0.3, 1, 0.3)
-                elif mode == "unused_mats":
-                    if val > 0:
-                        status = "[WARN]"
-                        message = f"{val} unused material(s)"
-                        text_col = c4d.Vector(1, 1, 0.3)
-                    else:
-                        status = "[ OK ]"
-                        message = "All materials assigned"
-                        text_col = c4d.Vector(0.3, 1, 0.3)
-                elif mode == "names":
-                    if val > 0:
-                        status = "[WARN]"
-                        names = self.data.get("names_list", [])
-                        first = names[0] if names else "object"
-                        message = f"Default name '{first}'" + (f" (+{val-1} more)" if val > 1 else "")
-                        text_col = c4d.Vector(1, 1, 0.3)
-                    else:
-                        status = "[ OK ]"
-                        message = "All objects named"
-                        text_col = c4d.Vector(0.3, 1, 0.3)
-                elif mode == "output":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} output path issue(s)"
-                        text_col = c4d.Vector(1, 0.3, 0.3)
-                    else:
-                        status = "[ OK ]"
-                        message = "Output paths configured"
-                        text_col = c4d.Vector(0.3, 1, 0.3)
+                    message = fail_tpl.format(n=val, first=first)
+                    if name_key and val > 1:
+                        message += f" (+{val-1} more)"
+                    text_col = _COL_RED if severity == "FAIL" else _COL_YELLOW
+                    bg = _COL_BG_FAIL if severity == "FAIL" else _COL_BG_WARN
                 else:
-                    status = "[ OK ]" if val <= 0 else "[FAIL]"
-                    message = ""
-                    text_col = c4d.Vector(0.3, 1, 0.3) if val <= 0 else c4d.Vector(1, 0.3, 0.3)
+                    status = "[ OK ]"
+                    message = ok_msg
+                    text_col = _COL_GREEN
+                    bg = _COL_BG_OK
 
-                # Draw terminal-style line with status indicator
-                status_bg, _ = self._sev(val)
+                self.DrawSetPen(bg)
+                self.DrawRectangle(int(x), int(y), int(w - self.pad), int(y + self.rowh))
 
-                # Draw subtle background stripe
-                self.DrawSetPen(status_bg)
-                self.DrawRectangle(int(x), int(y), int(w-self.pad), int(y+self.rowh))
-
-                # Draw terminal-style text
-                self.DrawSetTextCol(text_col, c4d.Vector(0,0,0))
-
-                # Format: [STATUS] CHECK_NAME: Message
-                check_name = label.ljust(13)
-
-                # Vertically center text in row
                 text_y = int(y + (self.rowh - 12) // 2)
 
-                # Draw status
-                self.DrawText(status, int(x+5), text_y)
+                self.DrawSetTextCol(text_col, _COL_BLACK)
+                self.DrawText(status, int(x + 5), text_y)
 
-                # Draw check name
-                self.DrawSetTextCol(c4d.Vector(0.5, 0.5, 0.5), c4d.Vector(0,0,0))  # Gray for label
-                self.DrawText(f"{check_name}:", int(x+55), text_y)
+                self.DrawSetTextCol(_COL_GRAY, _COL_BLACK)
+                self.DrawText(f"{label.ljust(13)}:", int(x + 55), text_y)
 
-                # Draw message
-                self.DrawSetTextCol(text_col, c4d.Vector(0,0,0))
-                self.DrawText(message, int(x+175), text_y)
+                self.DrawSetTextCol(text_col, _COL_BLACK)
+                self.DrawText(message, int(x + 175), text_y)
 
                 y += self.rowh + self.pad
-
-            mapping = [
-                ("Lights", "lights", "lights"),
-                ("Visibility", "vis", "vis"),
-                ("Keyframes", "keys", "keys"),
-                ("Cameras", "cam", "cam"),
-                ("Presets", "rdc", "rdc"),
-                ("Assets", "textures", "textures"),
-                ("Materials", "unused_mats", "unused_mats"),
-                ("Naming", "names", "names"),
-                ("Output", "output", "output"),
-            ]
-
-            for label, key, mode in mapping:
-                if self.show.get(key, False):
-                    row(label, key, mode)
-
-            # Footer removed for space optimization
 
         except Exception as e:
             safe_print(f"Error in DrawMsg: {e}")
@@ -1366,7 +1265,7 @@ class SnapshotHandler:
                 folder = os.path.dirname(path)
                 c4d.gui.MessageDialog(f"Still saved!\n\nFile: {filename}\nFolder: {folder}")
 
-        except:
+        except Exception:
             pass
 
 # Global snapshot handler
@@ -1425,9 +1324,9 @@ class YSPanel(gui.GeDialog):
         super().__init__()
         self._last_doc = None
         self._last_check_time = 0
-        self._check_thread = None
-        self.ua = None  # StatusArea will be created in CreateLayout
+        self.ua = None
         self._artist_name = ""
+        self._dirty = False  # Set by CoreMessage, consumed by Timer
 
         # Store selection results
         self._lights_bad = []
@@ -1454,10 +1353,10 @@ class YSPanel(gui.GeDialog):
             td = None
             try:
                 td = doc.GetTakeData()
-            except:
+            except Exception:
                 try:
                     td = documents.GetTakeData(doc)
-                except:
+                except Exception:
                     pass
 
             shot = ""
@@ -1491,10 +1390,10 @@ class YSPanel(gui.GeDialog):
 
             try:
                 td = doc.GetTakeData()
-            except:
+            except Exception:
                 try:
                     td = documents.GetTakeData(doc)
-                except:
+                except Exception:
                     pass
 
             if td:
@@ -1543,19 +1442,6 @@ class YSPanel(gui.GeDialog):
         normalized_preset = normalize_preset_name(self._active_preset)
         if normalized_preset in preset_to_index:
             self.SetInt32(G.PRESET_DROPDOWN, preset_to_index[normalized_preset])
-
-    def _flags(self):
-        # Return watcher states (now controlled by tab buttons)
-        if self._all_muted:
-            # If muted, all watchers are off
-            return {
-                "lights": False,
-                "vis": False,
-                "keys": False,
-                "cam": False,
-                "rdc": False
-            }
-        return self._watcher_states
 
     def _refresh(self):
         """Throttled refresh with performance optimization"""
@@ -1609,7 +1495,7 @@ class YSPanel(gui.GeDialog):
                     names_list=[(o.GetName() or "unnamed") for o in (names_bad[:10] if names_bad else [])],
                     output=output_count,
                 ),
-                self._flags(),
+                self.ua.show,
             )
 
             # Store results
@@ -1751,12 +1637,6 @@ class YSPanel(gui.GeDialog):
 
     def InitValues(self):
         # Initialize watcher states (all active by default - always enabled now)
-        self._watcher_states = {
-            'lights': True, 'vis': True, 'keys': True, 'cam': True,
-            'rdc': True, 'textures': True, 'unused_mats': True,
-            'names': True, 'output': True,
-        }
-        self._all_muted = False
 
         # Populate render preset dropdown
         self.AddChild(G.PRESET_DROPDOWN, 0, "Previz")
@@ -1785,23 +1665,26 @@ class YSPanel(gui.GeDialog):
         if doc is not self._last_doc:
             check_cache.clear()
             self._sync_from_doc(doc)
-            self._refresh()
+            self._dirty = True
             self._last_doc = doc
 
-        # Periodic refresh as safety net (CoreMessage handles instant updates)
-        self._refresh()
+        # Only refresh if dirty or cache expired
+        if self._dirty:
+            self._dirty = False
+            self._refresh()
+        else:
+            self._refresh()  # Cache handles skip if still valid
 
     def CoreMessage(self, id, msg):
-        """React instantly to scene changes instead of waiting for timer"""
         if id == c4d.EVMSG_CHANGE:
-            check_cache.clear()
-            self._refresh()
+            self._dirty = True  # Don't clear cache or refresh here - let Timer handle it
             return True
 
         if id == 431000159:  # EVMSG_TAKECHANGED
             doc = c4d.documents.GetActiveDocument()
             if doc:
                 self._sync_from_doc(doc)
+            self._dirty = True
             return True
 
         return gui.GeDialog.CoreMessage(self, id, msg)
@@ -2044,63 +1927,15 @@ class YSPanel(gui.GeDialog):
         _snapshot_handler.open_artist_folder(doc, self._artist_name)
 
     def _create_vibrate_null(self, doc):
-        """Merge vibrate null from C4D file"""
-        if not doc:
-            return
-
-        try:
-            # Get path to the C4D file (in the same plugin directory)
-            plugin_dir = os.path.dirname(__file__)
-            c4d_file = os.path.join(plugin_dir, "c4d", "VibrateNull.c4d")
-
-            # Check if file exists
-            if not os.path.exists(c4d_file):
-                safe_print(f"VibrateNull.c4d not found at: {c4d_file}")
-                c4d.gui.MessageDialog("VibrateNull.c4d file not found in c4d folder")
-                return
-
-            # Merge the C4D file into the current document
-            merge_doc = c4d.documents.MergeDocument(doc, c4d_file, c4d.SCENEFILTER_OBJECTS | c4d.SCENEFILTER_MATERIALS)
-
-            if merge_doc:
-                c4d.EventAdd()
-                safe_print("Merged vibrate null from VibrateNull.c4d")
-            else:
-                safe_print("Failed to merge VibrateNull.c4d")
-                c4d.gui.MessageDialog("Failed to merge VibrateNull.c4d")
-
-        except Exception as e:
-            safe_print(f"Error merging vibrate null: {e}")
-            c4d.gui.MessageDialog(f"Error loading vibrate null: {e}")
+        self._merge_c4d_file(doc, "VibrateNull.c4d")
 
     def _create_hierarchy(self, doc):
-        """Merge hierarchy nulls from nulls.c4d"""
-        if not doc:
-            return
-
-        try:
-            plugin_dir = os.path.dirname(__file__)
-            c4d_file = os.path.join(plugin_dir, "c4d", "nulls.c4d")
-
-            if not os.path.exists(c4d_file):
-                safe_print(f"nulls.c4d not found at: {c4d_file}")
-                c4d.gui.MessageDialog("nulls.c4d file not found in c4d folder")
-                return
-
-            merge_doc = c4d.documents.MergeDocument(doc, c4d_file, c4d.SCENEFILTER_OBJECTS | c4d.SCENEFILTER_MATERIALS)
-
-            if merge_doc:
-                c4d.EventAdd()
-                safe_print("Merged hierarchy nulls from nulls.c4d")
-            else:
-                safe_print("Failed to merge nulls.c4d")
-                c4d.gui.MessageDialog("Failed to merge nulls.c4d")
-
-        except Exception as e:
-            safe_print(f"Error creating hierarchy: {e}")
-            c4d.gui.MessageDialog(f"Error creating hierarchy: {e}")
+        self._merge_c4d_file(doc, "nulls.c4d")
 
     def _merge_camera_file(self, doc, filename):
+        self._merge_c4d_file(doc, filename)
+
+    def _merge_c4d_file(self, doc, filename):
         """Merge camera setup from C4D file"""
         if not doc:
             return
@@ -2249,69 +2084,6 @@ class YSPanel(gui.GeDialog):
             # Clean up template document
             if template_doc:
                 c4d.documents.KillDocument(template_doc)
-
-    def _force_vertical_aspect(self, doc):
-        """Force all render presets to 9:16 vertical aspect ratio for social media"""
-        if not doc:
-            return
-
-        try:
-            # Common vertical resolutions (9:16 aspect ratio) and output paths
-            vertical_presets = {
-                "previz": {
-                    "resolution": (720, 1280),
-                    "path": "../../output/previz/_Shots/$take/$prj"
-                },
-                "pre_render": {
-                    "resolution": (1080, 1920),
-                    "path": "../../output/pre_render/_Shots/$take/v01/$prj"
-                },
-                "render": {
-                    "resolution": (1080, 1920),
-                    "path": "../../output/render/_Shots/$take/v01/$prj"
-                },
-                "stills": {
-                    "resolution": (2160, 3840),
-                    "path": "../../output/stills/_Shots/$take/v01/$prj"
-                }
-            }
-
-            changed_count = 0
-            rd = doc.GetFirstRenderData()
-
-            while rd:
-                preset_name = normalize_preset_name(rd.GetName() or "")
-
-                if preset_name in vertical_presets:
-                    preset_data = vertical_presets[preset_name]
-                    width, height = preset_data["resolution"]
-                    # Set vertical resolution (9:16 aspect ratio)
-                    rd[c4d.RDATA_XRES] = width
-                    rd[c4d.RDATA_YRES] = height
-                    # Set output path
-                    rd[c4d.RDATA_PATH] = preset_data["path"]
-                    changed_count += 1
-                    safe_print(f"Changed '{preset_name}' to {width}x{height} (9:16) with path: {preset_data['path']}")
-
-                rd = rd.GetNext()
-
-            check_cache.clear()  # Clear cache to update compliance check immediately
-            c4d.EventAdd()
-
-            if changed_count > 0:
-                c4d.gui.MessageDialog(f"Forced Vertical Aspect (9:16) for Reels/Stories\n\n"
-                                     f"Updated {changed_count} render presets:\n"
-                                     f"• Previz: 720×1280\n"
-                                     f"• Pre-Render: 1080×1920\n"
-                                     f"• Render: 1080×1920\n"
-                                     f"• Stills: 2160×3840\n\n"
-                                     f"Output paths verified and set.")
-            else:
-                c4d.gui.MessageDialog("No standard render presets found to update.\n"
-                                     "Create presets named: previz, pre_render, render, or stills")
-
-        except Exception as e:
-            safe_print(f"Error forcing vertical aspect: {e}")
 
     def _force_all_presets(self, doc):
         """Force all 4 render presets from template file and delete others"""
@@ -2750,76 +2522,6 @@ class YSPanel(gui.GeDialog):
 
         safe_print(f"Restored {layers_restored} layers to visible state")
 
-    def _search_3d_model(self):
-        """Open 3dsky.org search with user's query"""
-        # Ask user what they're looking for with a fun message
-        search_term = c4d.gui.InputDialog("Which 3D model you need bro?", "")
-
-        if search_term:
-            # Clean up the search term for URL
-            import urllib.parse
-            encoded_term = urllib.parse.quote(search_term)
-
-            # Construct 3dsky search URL
-            search_url = f"https://3dsky.org/3dmodels?query={encoded_term}"
-
-            # Open in browser
-            import webbrowser
-            webbrowser.open(search_url)
-
-            safe_print(f"Opening 3dsky search for: {search_term}")
-        else:
-            safe_print("Search cancelled - no search term entered")
-
-    def _ask_chatgpt(self):
-        """Open ChatGPT with user's question copied to clipboard"""
-        # Ask user for their prompt
-        user_prompt = c4d.gui.InputDialog("What Python Tag script do you want to create?", "")
-
-        if user_prompt:
-            # Construct the full prompt with role and instructions
-            full_prompt = """Role: You are a senior Technical Director and Python developer specializing in Cinema 4D Python Tags. You write production-safe code that creates and manages User Data in a single Python-Tag script. Your outputs must be robust, idempotent (no duplicate UD), and well-commented.
-
-IMPORTANT: The plugin is designed for Cinema 4D 2024. Follow the correct documentation only and do not assume c4d commands and IDs. Use only verified Cinema 4D 2024 API calls.
-
-Rules for Cinema4D scripting help:
-
-Always clarify if the user wants a Python Tag vs a Python Generator vs a Command Script vs a Plugin.
-
-Remember:
-- Python Tags cannot permanently add objects, only return one object or change attributes.
-- Python Generators are used when the goal is to create many children/geometry procedurally.
-- For UI-driven tools (buttons, UD), a Script or Command Plugin is often more appropriate.
-- Always explain which object type is correct before coding.
-
-Workflow you must follow (two phases):
-
-Plan first (no code): Outline the tag's behavior, schema (names, data types, default values, constraints), data flow, and how you'll avoid common C4D pitfalls. Confirm whether a Python Tag is the right choice or if a Python Generator would be better.
-
-Then code: Output one complete Python-Tag script (no placeholders, no omissions) ready to paste into a Python Tag. The scripts should generate user data on the null on which the python tag is applied.
-
-The user data controls should be sliders, buttons, dropdowns and anything needed for a clear and smart workflow to generate complex 3D scenes.
-
-The script I am interested to build is: """ + user_prompt
-
-            # Copy full prompt to clipboard
-            c4d.CopyStringToClipboard(full_prompt)
-
-            # Open ChatGPT
-            import webbrowser
-            webbrowser.open("https://chatgpt.com/")
-
-            # Show reminder message
-            c4d.gui.MessageDialog(
-                "Your Python Tag prompt has been copied to clipboard!\n\n"
-                "Just press Ctrl+V (or Cmd+V on Mac) in ChatGPT to paste it.\n\n"
-                "ChatGPT will help you create a production-ready Python Tag script."
-            )
-
-            safe_print(f"Opened ChatGPT with Python Tag request: {user_prompt[:50]}...")
-        else:
-            safe_print("ChatGPT cancelled - no script description entered")
-
     def _assign_to_layer_recursive(self, doc, obj, layer):
         """Assign object and all its children to a layer"""
         if not obj or not layer:
@@ -3050,33 +2752,16 @@ def _select_objects(doc, objs):
     if not doc or not objs:
         return
 
-    def clear(op):
-        stack = [op]
-        while stack:
-            current = stack.pop()
-            if current:
-                try:
-                    current.DelBit(c4d.BIT_ACTIVE)
-                except:
-                    pass
-
-                child = current.GetDown()
-                if child:
-                    stack.append(child)
-
-                sibling = current.GetNext()
-                if sibling:
-                    stack.append(sibling)
-
     first = doc.GetFirstObject()
     if first:
-        clear(first)
+        for o in _iter_objs(first):
+            o.DelBit(c4d.BIT_ACTIVE)
 
     for o in objs:
         try:
             if o:
                 o.SetBit(c4d.BIT_ACTIVE)
-        except:
+        except Exception:
             pass
 
     c4d.EventAdd()
@@ -3088,7 +2773,7 @@ class YSPanelCmd(plugins.CommandData):
     def Execute(self, doc):
         if self.dlg is None:
             self.dlg = YSPanel()
-            safe_print("YS Guardian Panel v1.0 initialized")
+            safe_print(f"{PLUGIN_NAME} initialized")
         # Pass plugin ID as second argument for layout persistence
         return self.dlg.Open(dlgtype=c4d.DLG_TYPE_ASYNC, pluginid=PLUGIN_ID,
                             defaultw=420, defaulth=360)
@@ -3133,7 +2818,7 @@ def Register():
         dat=YSPanelCmd()
     )
     if ok:
-        safe_print("Guardian panel v1.1.0 registered successfully")
+        safe_print(f"{PLUGIN_NAME} registered successfully")
     else:
         safe_print("Failed to register Guardian panel")
     return ok
@@ -3141,7 +2826,7 @@ def Register():
 if __name__ == "__main__":
     # Print setup info using safe_print to avoid None returns in console
     safe_print("\n" + "="*50)
-    safe_print("YS Guardian Panel v1.1.0 - Complete Edition")
+    safe_print(f"{PLUGIN_NAME}")
     safe_print("="*50)
 
     if SNAPSHOT_AVAILABLE and EXR_CONVERTER_AVAILABLE:
@@ -3154,7 +2839,7 @@ if __name__ == "__main__":
             safe_print("  Missing dependencies for snapshot support")
 
     safe_print("Watcher Status: ACTIVE")
-    safe_print("  5 Quality Checks: Lights, Visibility, Keys, Camera, Render")
+    safe_print("  9 Quality Checks active")
     safe_print("  Real-time Monitoring: Enabled")
     safe_print("="*50 + "\n")
 
