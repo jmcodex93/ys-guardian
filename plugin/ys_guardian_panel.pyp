@@ -1039,6 +1039,113 @@ def get_scene_stats(doc):
     check_cache.set(doc, "stats", stats)
     return stats
 
+# ---------------- Redshift node texture paths ----------------
+RS_NODESPACE = "com.redshift3d.redshift4c4d.class.nodespace"
+RS_TEXTURE_NODE_ID = "com.redshift3d.redshift4c4d.nodes.core.texturesampler"
+
+def check_rs_node_textures(doc):
+    """Check Redshift node materials for texture paths (absolute or missing)"""
+    cached = check_cache.get(doc, "rs_tex")
+    if cached is not None:
+        return cached
+
+    issues = []
+
+    if not MAXON_AVAILABLE:
+        check_cache.set(doc, "rs_tex", issues)
+        return issues
+
+    doc_path = doc.GetDocumentPath() or ""
+
+    try:
+        for mat in doc.GetMaterials():
+            if not mat:
+                continue
+            mat_name = mat.GetName()
+
+            # Check if this is a node material with RS space
+            try:
+                nodeMat = mat.GetNodeMaterialReference()
+                if not nodeMat or not nodeMat.HasSpace(RS_NODESPACE):
+                    continue
+            except:
+                continue
+
+            # Access the graph
+            try:
+                graph = nodeMat.GetGraph(RS_NODESPACE)
+                if not graph:
+                    continue
+            except:
+                continue
+
+            # Find all TextureSampler nodes
+            try:
+                root = graph.GetRoot()
+
+                def scan_node(node):
+                    """Recursively scan nodes for texture paths"""
+                    if not node:
+                        return
+
+                    try:
+                        # Check if this is a texture sampler
+                        asset_id = ""
+                        try:
+                            asset_id = node.GetValue("net.maxon.node.attribute.assetid")[0] or ""
+                            asset_id = str(asset_id)
+                        except:
+                            pass
+
+                        is_texture = "texturesampler" in asset_id.lower() or "texture" in asset_id.lower()
+
+                        if is_texture:
+                            # Try to find the filename port
+                            inputs = node.GetInputs()
+                            if inputs:
+                                for port in inputs.GetChildren():
+                                    try:
+                                        port_id = str(port.GetId() or "")
+                                        if "path" in port_id.lower() or "filename" in port_id.lower() or "tex0" in port_id.lower():
+                                            val = port.GetDefaultValue()
+                                            if val:
+                                                filepath = str(val)
+                                                if filepath and filepath != "None" and len(filepath) > 2:
+                                                    issue = {"material": mat_name, "path": filepath, "type": ""}
+
+                                                    if _is_absolute_path(filepath):
+                                                        issue["type"] = "absolute"
+                                                        issues.append(issue)
+                                                    elif doc_path:
+                                                        resolved = os.path.join(doc_path, filepath)
+                                                        if not os.path.exists(resolved):
+                                                            issue["type"] = "missing"
+                                                            issue["resolved"] = resolved
+                                                            issues.append(issue)
+                                    except:
+                                        pass
+
+                        # Recurse into children
+                        for child in node.GetChildren():
+                            scan_node(child)
+
+                    except:
+                        pass
+
+                scan_node(root)
+
+            except Exception as e:
+                safe_print(f"Error scanning RS nodes in '{mat_name}': {e}")
+
+            if len(issues) > 50:
+                break
+
+    except Exception as e:
+        safe_print(f"Error checking RS node textures: {e}")
+
+    check_cache.set(doc, "rs_tex", issues)
+    return issues
+
 # ---------------- auto-fix functions ----------------
 def fix_lights(doc, lights_bad):
     """Move stray lights into a 'lights' group null"""
@@ -1170,6 +1277,15 @@ def export_qc_report(doc, results, artist_name):
         "items": [f"{m['source']}: {m['path']}" for m in missing_tex[:20]],
     }
 
+    # RS node textures
+    rs_tex = results.get("rs_tex_bad", [])
+    report["checks"]["rs_node_textures"] = {
+        "status": "PASS" if not rs_tex else "FAIL",
+        "count": len(rs_tex),
+        "label": "Redshift node texture issues",
+        "items": [f"[{t['type']}] {t['material']}: {t['path']}" for t in rs_tex[:20]],
+    }
+
     # Scene stats
     stats = results.get("scene_stats", {})
     if stats:
@@ -1230,7 +1346,7 @@ class StatusArea(gui.GeUserArea):
     def __init__(self):
         super().__init__()
         self.data = {}
-        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True, "unused_mats": True, "names": True, "output": True, "missing_tex": True}
+        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True, "unused_mats": True, "names": True, "output": True, "missing_tex": True, "rs_tex": True}
         self.pad = 3
         self.rowh = 20  # Compact rows, aligned with button column
         self.font = c4d.FONT_MONOSPACED  # Terminal-style monospace font
@@ -1386,6 +1502,15 @@ class StatusArea(gui.GeUserArea):
                         status = "[ OK ]"
                         message = "All textures found"
                         text_col = c4d.Vector(0.3, 1, 0.3)
+                elif mode == "rs_tex":
+                    if val > 0:
+                        status = "[FAIL]"
+                        message = f"{val} RS node texture issue(s)"
+                        text_col = c4d.Vector(1, 0.3, 0.3)
+                    else:
+                        status = "[ OK ]"
+                        message = "RS textures OK"
+                        text_col = c4d.Vector(0.3, 1, 0.3)
                 else:
                     status = "[ OK ]" if val <= 0 else "[FAIL]"
                     message = ""
@@ -1431,6 +1556,7 @@ class StatusArea(gui.GeUserArea):
                 ("Naming", "names", "names"),
                 ("Output", "output", "output"),
                 ("Textures", "missing_tex", "missing_tex"),
+                ("RS Nodes", "rs_tex", "rs_tex"),
             ]
 
             for label, key, mode in mapping:
@@ -1544,6 +1670,7 @@ class G:
     BTN_INFO_OUTPUT = 1138
 
     BTN_INFO_MISSING_TEX = 1139
+    BTN_INFO_RS_TEX = 1143
 
     # Auto-fix buttons
     BTN_FIX_LIGHTS = 1140
@@ -1594,6 +1721,7 @@ class YSPanel(gui.GeDialog):
         self._names_bad = []
         self._output_bad = []
         self._missing_tex_bad = []
+        self._rs_tex_bad = []
         self._scene_stats = {}
 
         # Cycling indices for one-by-one selection
@@ -1737,6 +1865,7 @@ class YSPanel(gui.GeDialog):
             names_bad = check_default_names(doc)
             output_bad = check_output_paths(doc)
             missing_tex_bad = check_missing_textures(doc)
+            rs_tex_bad = check_rs_node_textures(doc)
             scene_stats = get_scene_stats(doc)
 
             # Count issues
@@ -1750,6 +1879,7 @@ class YSPanel(gui.GeDialog):
             names_count = len(names_bad) if names_bad else 0
             output_count = len(output_bad) if output_bad else 0
             missing_tex_count = len(missing_tex_bad) if missing_tex_bad else 0
+            rs_tex_count = len(rs_tex_bad) if rs_tex_bad else 0
 
             # Update StatusArea
             self.ua.set_state(
@@ -1771,6 +1901,7 @@ class YSPanel(gui.GeDialog):
                     names_list=[(o.GetName() or "unnamed") for o in (names_bad[:10] if names_bad else [])],
                     output=output_count,
                     missing_tex=missing_tex_count,
+                    rs_tex=rs_tex_count,
                 ),
                 self._flags(),
             )
@@ -1782,6 +1913,7 @@ class YSPanel(gui.GeDialog):
             self._cam_bad = cam_bad
             self._paths_bad = paths_bad
             self._missing_tex_bad = missing_tex_bad
+            self._rs_tex_bad = rs_tex_bad
             self._scene_stats = scene_stats
             # Reset cycling indices when results change
             if unused_mats_bad != self._unused_mats_bad:
@@ -1827,7 +1959,7 @@ class YSPanel(gui.GeDialog):
         self.AttachUserArea(self.ua, G.CANVAS)
 
         # Right: per-check Select + Fix buttons (2 columns, matched to StatusArea rows)
-        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 10)
+        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 11)
         self.GroupBorderSpace(0, 3, 0, 3)
         self.GroupSpace(2, 3)
         # Row: LIGHTS
@@ -1859,6 +1991,9 @@ class YSPanel(gui.GeDialog):
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         # Row: MISSING TEXTURES
         self.AddButton(G.BTN_INFO_MISSING_TEX, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: RS NODE TEXTURES
+        self.AddButton(G.BTN_INFO_RS_TEX, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         self.GroupEnd()
 
@@ -1921,7 +2056,7 @@ class YSPanel(gui.GeDialog):
         self._watcher_states = {
             'lights': True, 'vis': True, 'keys': True, 'cam': True,
             'rdc': True, 'paths': True, 'unused_mats': True,
-            'names': True, 'output': True, 'missing_tex': True,
+            'names': True, 'output': True, 'missing_tex': True, 'rs_tex': True,
         }
         self._all_muted = False
 
@@ -2160,6 +2295,21 @@ class YSPanel(gui.GeDialog):
                 info_msg = "All texture files found on disk."
             c4d.gui.MessageDialog(info_msg)
 
+        elif cid == G.BTN_INFO_RS_TEX:
+            if self._rs_tex_bad:
+                info_msg = f"RS NODE TEXTURE ISSUES: {len(self._rs_tex_bad)}\n\n"
+                for i, entry in enumerate(self._rs_tex_bad[:15], 1):
+                    issue_type = "ABSOLUTE PATH" if entry["type"] == "absolute" else "MISSING FILE"
+                    info_msg += f"{i}. [{issue_type}] Material '{entry['material']}'\n"
+                    info_msg += f"   Path: {entry['path']}\n\n"
+                if len(self._rs_tex_bad) > 15:
+                    info_msg += f"... and {len(self._rs_tex_bad) - 15} more\n"
+            else:
+                info_msg = "All Redshift node textures OK."
+                if not MAXON_AVAILABLE:
+                    info_msg += "\n\n(maxon module not available - node scanning disabled)"
+            c4d.gui.MessageDialog(info_msg)
+
         # ── Auto-fix handlers ──
         elif cid == G.BTN_FIX_LIGHTS:
             if self._lights_bad:
@@ -2202,6 +2352,7 @@ class YSPanel(gui.GeDialog):
                 "output_bad": self._output_bad,
                 "output_count": len(self._output_bad) if self._output_bad else 0,
                 "missing_tex_bad": self._missing_tex_bad,
+                "rs_tex_bad": self._rs_tex_bad,
                 "scene_stats": self._scene_stats,
             }
             save_path = export_qc_report(doc, results, self._artist_name)
