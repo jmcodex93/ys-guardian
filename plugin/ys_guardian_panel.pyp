@@ -1079,55 +1079,95 @@ def check_rs_node_textures(doc):
             except:
                 continue
 
-            # Find all TextureSampler nodes
+            # Scan all nodes in graph for texture paths
             try:
-                root = graph.GetRoot()
+                root = graph.GetViewRoot()
 
-                def scan_node(node):
-                    """Recursively scan nodes for texture paths"""
-                    if not node:
+                def check_port_value(port, mat_name):
+                    """Extract file path from a port value if present"""
+                    try:
+                        val = None
+                        try:
+                            val = port.GetPortValue()
+                        except:
+                            try:
+                                val = port.GetDefaultValue()
+                            except:
+                                return None
+
+                        if val is None:
+                            return None
+
+                        # Try maxon.Url methods
+                        filepath = ""
+                        try:
+                            if hasattr(val, 'GetSystemPath'):
+                                filepath = str(val.GetSystemPath())
+                        except:
+                            pass
+                        if not filepath:
+                            try:
+                                if hasattr(val, 'ToString'):
+                                    filepath = str(val.ToString())
+                            except:
+                                pass
+                        if not filepath:
+                            filepath = str(val)
+
+                        # Must look like a file path
+                        if (not filepath or filepath == "None" or len(filepath) < 4
+                                or not ("/" in filepath or "\\" in filepath)):
+                            return None
+
+                        # Skip internal
+                        if filepath.startswith("asset:") or filepath.startswith("preset:"):
+                            return None
+
+                        return filepath
+                    except:
+                        return None
+
+                def scan_ports_recursive(port, mat_name):
+                    """Recursively scan port and all sub-ports for file paths"""
+                    if not port:
+                        return
+
+                    # Check this port's value
+                    filepath = check_port_value(port, mat_name)
+                    if filepath:
+                        issue = {"material": mat_name, "path": filepath, "type": ""}
+                        if _is_absolute_path(filepath):
+                            issue["type"] = "absolute"
+                            issues.append(issue)
+                        elif doc_path:
+                            resolved = os.path.join(doc_path, filepath)
+                            if not os.path.exists(resolved):
+                                issue["type"] = "missing"
+                                issue["resolved"] = resolved
+                                issues.append(issue)
+
+                    # Recurse into sub-ports (port bundles like tex0 -> tex0.path)
+                    try:
+                        for child_port in port.GetChildren():
+                            scan_ports_recursive(child_port, mat_name)
+                    except:
+                        pass
+
+                def scan_node(node, depth=0):
+                    """Recursively scan nodes for texture file paths"""
+                    if not node or depth > 10:
                         return
 
                     try:
-                        # Check if this is a texture sampler
-                        asset_id = ""
-                        try:
-                            asset_id = node.GetValue("net.maxon.node.attribute.assetid")[0] or ""
-                            asset_id = str(asset_id)
-                        except:
-                            pass
+                        # Scan all input ports AND their sub-ports
+                        inputs = node.GetInputs()
+                        if inputs:
+                            for port in inputs.GetChildren():
+                                scan_ports_recursive(port, mat_name)
 
-                        is_texture = "texturesampler" in asset_id.lower() or "texture" in asset_id.lower()
-
-                        if is_texture:
-                            # Try to find the filename port
-                            inputs = node.GetInputs()
-                            if inputs:
-                                for port in inputs.GetChildren():
-                                    try:
-                                        port_id = str(port.GetId() or "")
-                                        if "path" in port_id.lower() or "filename" in port_id.lower() or "tex0" in port_id.lower():
-                                            val = port.GetDefaultValue()
-                                            if val:
-                                                filepath = str(val)
-                                                if filepath and filepath != "None" and len(filepath) > 2:
-                                                    issue = {"material": mat_name, "path": filepath, "type": ""}
-
-                                                    if _is_absolute_path(filepath):
-                                                        issue["type"] = "absolute"
-                                                        issues.append(issue)
-                                                    elif doc_path:
-                                                        resolved = os.path.join(doc_path, filepath)
-                                                        if not os.path.exists(resolved):
-                                                            issue["type"] = "missing"
-                                                            issue["resolved"] = resolved
-                                                            issues.append(issue)
-                                    except:
-                                        pass
-
-                        # Recurse into children
+                        # Recurse into child nodes
                         for child in node.GetChildren():
-                            scan_node(child)
+                            scan_node(child, depth + 1)
 
                     except:
                         pass
