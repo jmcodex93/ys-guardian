@@ -1065,8 +1065,8 @@ class StatusArea(gui.GeUserArea):
         super().__init__()
         self.data = {}
         self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True, "unused_mats": True, "names": True, "output": True}
-        self.pad = 4
-        self.rowh = 28  # Tall rows to align with macOS button height
+        self.pad = 3
+        self.rowh = 20  # Compact rows, aligned with button column
         self.font = c4d.FONT_MONOSPACED  # Terminal-style monospace font
         self.last_draw_time = 0
         self.min_draw_interval = 0.05  # Minimum 50ms between redraws
@@ -1227,7 +1227,7 @@ class StatusArea(gui.GeUserArea):
                 self.DrawSetTextCol(text_col, c4d.Vector(0,0,0))
 
                 # Format: [STATUS] CHECK_NAME: Message
-                check_name = label.ljust(15)
+                check_name = label.ljust(13)
 
                 # Vertically center text in row
                 text_y = int(y + (self.rowh - 12) // 2)
@@ -1246,15 +1246,15 @@ class StatusArea(gui.GeUserArea):
                 y += self.rowh + self.pad
 
             mapping = [
-                ("LIGHTS", "lights", "lights"),
-                ("VISIBILITY", "vis", "vis"),
-                ("KEYFRAMES", "keys", "keys"),
-                ("CAMERAS", "cam", "cam"),
-                ("RENDER_PRESETS", "rdc", "rdc"),
-                ("ASSET_PATHS", "paths", "paths"),
-                ("UNUSED_MATS", "unused_mats", "unused_mats"),
-                ("NAMING", "names", "names"),
-                ("OUTPUT_PATHS", "output", "output"),
+                ("Lights", "lights", "lights"),
+                ("Visibility", "vis", "vis"),
+                ("Keyframes", "keys", "keys"),
+                ("Cameras", "cam", "cam"),
+                ("Presets", "rdc", "rdc"),
+                ("Asset Paths", "paths", "paths"),
+                ("Materials", "unused_mats", "unused_mats"),
+                ("Naming", "names", "names"),
+                ("Output", "output", "output"),
             ]
 
             for label, key, mode in mapping:
@@ -1636,14 +1636,14 @@ class YSPanel(gui.GeDialog):
         self.GroupSpace(4, 0)
 
         # Left: terminal status display
-        self.AddUserArea(G.CANVAS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 0, 200)
+        self.AddUserArea(G.CANVAS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 0, 215)
         self.ua = StatusArea()
         self.AttachUserArea(self.ua, G.CANVAS)
 
         # Right: per-check Select + Fix buttons (2 columns, matched to StatusArea rows)
         self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 9)
-        self.GroupBorderSpace(0, 4, 0, 4)
-        self.GroupSpace(2, 4)
+        self.GroupBorderSpace(0, 3, 0, 3)
+        self.GroupSpace(2, 3)
         # Row: LIGHTS
         self.AddButton(G.BTN_SEL_LIGHTS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
         self.AddButton(G.BTN_FIX_LIGHTS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "Fix")
