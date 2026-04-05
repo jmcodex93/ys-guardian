@@ -539,201 +539,15 @@ def check_render_conflicts(doc):
     check_cache.set(doc, "rdc", result)
     return result
 
-# ---------------- texture and asset path checks ----------------
-def check_texture_paths(doc):
-    """Check for absolute texture paths in materials"""
-    cached = check_cache.get(doc, "paths")
-    if cached is not None:
-        return cached
-
-    absolute_paths = []
-
-    try:
-        # Check all materials for texture paths
-        materials = doc.GetMaterials()
-        for mat in materials:
-            if not mat:
-                continue
-
-            mat_type = mat.GetType()
-            mat_name = mat.GetName()
-
-            # FIRST: Check material's BaseContainer directly for file paths
-            # This works for all material types including node materials
-            try:
-                mat_bc = mat.GetDataInstance()
-                if mat_bc:
-                    # Scan all parameters for file paths
-                    for desc_id, desc_bc in mat_bc:
-                        try:
-                            # Try as filename
-                            value = mat_bc.GetFilename(desc_id)
-                            if value:
-                                filepath = str(value)
-                                if filepath and _is_absolute_path(filepath):
-                                    absolute_paths.append({
-                                        'type': 'material_texture',
-                                        'material': mat_name,
-                                        'path': filepath
-                                    })
-                                    continue
-
-                            # Try as string (some materials store paths as strings)
-                            value = mat_bc.GetString(desc_id)
-                            if value and isinstance(value, str):
-                                # Check if it looks like a file path
-                                if _is_absolute_path(value) and ('/' in value or '\\' in value):
-                                    absolute_paths.append({
-                                        'type': 'material_param',
-                                        'material': mat_name,
-                                        'path': value
-                                    })
-                        except:
-                            pass
-            except:
-                pass
-
-            # SECOND: Also check shaders attached to the material (legacy approach)
-            shaders = []
-            shader = mat.GetFirstShader()
-            while shader:
-                shaders.append(shader)
-                shader = shader.GetNext()
-
-            # Check each shader for file paths
-            for shader in shaders:
-                # Common texture shader types
-                shader_type = shader.GetType()
-
-                # Bitmap shader (most common)
-                if shader_type == c4d.Xbitmap:
-                    try:
-                        filepath = shader[c4d.BITMAPSHADER_FILENAME]
-                        if filepath and _is_absolute_path(filepath):
-                            absolute_paths.append({
-                                'type': 'texture',
-                                'material': mat.GetName(),
-                                'shader': shader.GetName(),
-                                'path': filepath
-                            })
-                    except:
-                        pass
-
-                # Redshift Texture Sampler: 1036227
-                elif shader_type == 1036227:
-                    try:
-                        # Try to get filename parameter
-                        bc = shader.GetDataInstance()
-                        if bc:
-                            # Common parameter IDs for Redshift texture
-                            for param_id in [10000, 1, 2, 100]:  # Try common parameter IDs
-                                try:
-                                    filepath = bc.GetFilename(param_id)
-                                    if filepath:
-                                        filepath_str = str(filepath)
-                                        if filepath_str and _is_absolute_path(filepath_str):
-                                            absolute_paths.append({
-                                                'type': 'redshift_shader',
-                                                'material': mat.GetName(),
-                                                'shader': shader.GetName(),
-                                                'path': filepath_str
-                                            })
-                                            break  # Found it, don't check other IDs
-                                except:
-                                    pass
-                    except:
-                        pass
-
-                # Check for other common file path parameters in any shader
-                bc = shader.GetDataInstance()
-                if bc:
-                    for desc_id, desc_bc in bc:
-                        try:
-                            # Try as filename first
-                            value = bc.GetFilename(desc_id)
-                            if value:
-                                value_str = str(value)
-                                if value_str and _is_absolute_path(value_str):
-                                    absolute_paths.append({
-                                        'type': 'shader_file',
-                                        'material': mat.GetName(),
-                                        'shader': shader.GetName(),
-                                        'path': value_str
-                                    })
-                                    continue
-
-                            # Try as string
-                            value = bc.GetString(desc_id)
-                            if value and isinstance(value, str) and _is_absolute_path(value):
-                                absolute_paths.append({
-                                    'type': 'shader_param',
-                                    'material': mat.GetName(),
-                                    'shader': shader.GetName(),
-                                    'path': value
-                                })
-                        except:
-                            pass
-
-        # Check for alembic files
-        first = doc.GetFirstObject()
-        if first:
-            for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
-                if not obj:
-                    continue
-
-                # Check for Alembic Generator
-                if obj.GetType() == 1028083:  # Alembic Generator ID
-                    try:
-                        filepath = obj[c4d.ALEMBIC_PATH]
-                        if filepath and _is_absolute_path(filepath):
-                            absolute_paths.append({
-                                'type': 'alembic',
-                                'object': obj.GetName(),
-                                'path': filepath
-                            })
-                    except:
-                        pass
-
-                # Check for Alembic Tag
-                tags = obj.GetTags()
-                for tag in tags:
-                    if tag.GetType() == 1028081:  # Alembic Tag ID
-                        try:
-                            filepath = tag[c4d.ALEMBIC_PATH]
-                            if filepath and _is_absolute_path(filepath):
-                                absolute_paths.append({
-                                    'type': 'alembic_tag',
-                                    'object': obj.GetName(),
-                                    'path': filepath
-                                })
-                        except:
-                            pass
-
-                # Early exit if too many issues
-                if len(absolute_paths) > 50:
-                    safe_print(f"Too many absolute path issues found ({len(absolute_paths)}+), stopping check")
-                    break
-
-    except Exception as e:
-        safe_print(f"Error checking texture/asset paths: {e}")
-
-    check_cache.set(doc, "paths", absolute_paths)
-    return absolute_paths
-
 def _is_absolute_path(filepath):
     """Check if a file path is absolute (not relative)"""
     if not filepath:
         return False
-
-    # Windows absolute paths: C:\, D:\, \\server\
     if len(filepath) > 2:
         if filepath[1] == ':' or filepath.startswith('\\\\'):
             return True
-
-    # Unix absolute paths: /
     if filepath.startswith('/'):
         return True
-
     return False
 
 # ---------------- unused materials ----------------
@@ -887,108 +701,175 @@ def check_output_paths(doc):
     check_cache.set(doc, "output", issues)
     return issues
 
-# ---------------- missing textures ----------------
-def _collect_all_texture_paths(doc):
-    """Collect all texture file paths from materials, shaders, and objects"""
-    paths = []
+# ---------------- unified texture check ----------------
+RS_NODESPACE = "com.redshift3d.redshift4c4d.class.nodespace"
+
+def check_textures_unified(doc):
+    """Unified check: scans classic shaders, RS nodes, and alembics for absolute paths and missing files"""
+    cached = check_cache.get(doc, "textures")
+    if cached is not None:
+        return cached
+
+    issues = []
+    seen_paths = set()
     doc_path = doc.GetDocumentPath() or ""
 
-    # Helper to resolve relative paths
     def resolve(filepath):
         if not filepath:
             return None
         filepath = str(filepath).strip()
         if not filepath:
             return None
-        # Already absolute
         if _is_absolute_path(filepath):
             return filepath
-        # Relative to document
         if doc_path:
             return os.path.join(doc_path, filepath)
         return None
 
-    # Scan materials
-    for mat in doc.GetMaterials():
-        if not mat:
-            continue
-        mat_name = mat.GetName()
+    def add_issue(source, filepath):
+        """Check a file path and add issue if absolute or missing"""
+        if not filepath or filepath in seen_paths:
+            return
+        seen_paths.add(filepath)
 
-        # Bitmap shaders
-        shader = mat.GetFirstShader()
-        while shader:
-            if shader.GetType() == c4d.Xbitmap:
-                try:
-                    fp = shader[c4d.BITMAPSHADER_FILENAME]
-                    if fp:
-                        paths.append({"source": f"Material '{mat_name}'", "path": str(fp), "resolved": resolve(fp)})
-                except:
-                    pass
-            shader = shader.GetNext()
+        if _is_absolute_path(filepath):
+            issues.append({"source": source, "path": filepath, "issue": "absolute"})
+        else:
+            resolved = resolve(filepath)
+            if resolved and not os.path.exists(resolved):
+                issues.append({"source": source, "path": filepath, "issue": "missing", "resolved": resolved})
 
-        # BaseContainer file params
-        try:
-            bc = mat.GetDataInstance()
-            if bc:
-                for desc_id, _ in bc:
+    try:
+        materials = doc.GetMaterials() or []
+
+        for mat in materials:
+            if not mat:
+                continue
+            mat_name = mat.GetName()
+
+            # --- Classic shaders ---
+            shader = mat.GetFirstShader()
+            while shader:
+                if shader.GetType() == c4d.Xbitmap:
                     try:
-                        fp = bc.GetFilename(desc_id)
-                        if fp and str(fp).strip():
-                            paths.append({"source": f"Material '{mat_name}'", "path": str(fp), "resolved": resolve(fp)})
+                        fp = shader[c4d.BITMAPSHADER_FILENAME]
+                        if fp:
+                            add_issue(f"Shader in '{mat_name}'", str(fp))
                     except:
                         pass
-        except:
-            pass
+                shader = shader.GetNext()
 
-    # Scan objects for alembic paths
-    first = doc.GetFirstObject()
-    if first:
-        for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
-            if not obj:
-                continue
-            # Alembic generators
-            if obj.GetType() == 1028083:
+            # --- BaseContainer file params ---
+            try:
+                bc = mat.GetDataInstance()
+                if bc:
+                    for desc_id, _ in bc:
+                        try:
+                            fp = bc.GetFilename(desc_id)
+                            if fp and str(fp).strip():
+                                add_issue(f"Material '{mat_name}'", str(fp))
+                        except:
+                            pass
+            except:
+                pass
+
+            # --- RS Node graph ---
+            if MAXON_AVAILABLE:
                 try:
-                    fp = obj[c4d.ALEMBIC_PATH]
-                    if fp:
-                        paths.append({"source": f"Alembic '{obj.GetName()}'", "path": str(fp), "resolved": resolve(fp)})
+                    nodeMat = mat.GetNodeMaterialReference()
+                    if nodeMat and nodeMat.HasSpace(RS_NODESPACE):
+                        graph = nodeMat.GetGraph(RS_NODESPACE)
+                        if graph:
+                            root = graph.GetViewRoot()
+
+                            def check_port_value(port):
+                                try:
+                                    val = None
+                                    try:
+                                        val = port.GetPortValue()
+                                    except:
+                                        try:
+                                            val = port.GetDefaultValue()
+                                        except:
+                                            return None
+                                    if val is None:
+                                        return None
+                                    filepath = ""
+                                    try:
+                                        if hasattr(val, 'GetSystemPath'):
+                                            filepath = str(val.GetSystemPath())
+                                    except:
+                                        pass
+                                    if not filepath:
+                                        try:
+                                            if hasattr(val, 'ToString'):
+                                                filepath = str(val.ToString())
+                                        except:
+                                            pass
+                                    if not filepath:
+                                        filepath = str(val)
+                                    if (not filepath or filepath == "None" or len(filepath) < 4
+                                            or not ("/" in filepath or "\\" in filepath)):
+                                        return None
+                                    if filepath.startswith("asset:") or filepath.startswith("preset:"):
+                                        return None
+                                    return filepath
+                                except:
+                                    return None
+
+                            def scan_ports(port):
+                                if not port:
+                                    return
+                                fp = check_port_value(port)
+                                if fp:
+                                    add_issue(f"RS Node in '{mat_name}'", fp)
+                                try:
+                                    for child in port.GetChildren():
+                                        scan_ports(child)
+                                except:
+                                    pass
+
+                            def scan_node(node, depth=0):
+                                if not node or depth > 10:
+                                    return
+                                try:
+                                    inputs = node.GetInputs()
+                                    if inputs:
+                                        for port in inputs.GetChildren():
+                                            scan_ports(port)
+                                    for child in node.GetChildren():
+                                        scan_node(child, depth + 1)
+                                except:
+                                    pass
+
+                            scan_node(root)
                 except:
                     pass
 
-    return paths
-
-def check_missing_textures(doc):
-    """Check for texture files that don't exist on disk"""
-    cached = check_cache.get(doc, "missing_tex")
-    if cached is not None:
-        return cached
-
-    missing = []
-    try:
-        all_paths = _collect_all_texture_paths(doc)
-        seen = set()
-
-        for entry in all_paths:
-            resolved = entry.get("resolved")
-            if not resolved or resolved in seen:
-                continue
-            seen.add(resolved)
-
-            if not os.path.exists(resolved):
-                missing.append({
-                    "source": entry["source"],
-                    "path": entry["path"],
-                    "resolved": resolved,
-                })
-
-            if len(missing) > 50:
+            if len(issues) > 50:
                 break
 
-    except Exception as e:
-        safe_print(f"Error checking missing textures: {e}")
+        # --- Alembic objects ---
+        first = doc.GetFirstObject()
+        if first:
+            for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
+                if not obj:
+                    continue
+                if obj.GetType() == 1028083:
+                    try:
+                        fp = obj[c4d.ALEMBIC_PATH]
+                        if fp:
+                            add_issue(f"Alembic '{obj.GetName()}'", str(fp))
+                    except:
+                        pass
+                if len(issues) > 50:
+                    break
 
-    check_cache.set(doc, "missing_tex", missing)
-    return missing
+    except Exception as e:
+        safe_print(f"Error in unified texture check: {e}")
+
+    check_cache.set(doc, "textures", issues)
+    return issues
 
 # ---------------- scene complexity ----------------
 def get_scene_stats(doc):
@@ -997,21 +878,17 @@ def get_scene_stats(doc):
     if cached is not None:
         return cached
 
-    stats = {"objects": 0, "polygons": 0, "materials": 0, "lights": 0, "textures": 0}
+    stats = {"objects": 0, "polygons": 0, "materials": 0, "lights": 0}
 
     try:
-        # Materials
         stats["materials"] = len(doc.GetMaterials() or [])
 
-        # Objects, polygons, lights
         first = doc.GetFirstObject()
         if first:
             for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
                 if not obj:
                     continue
                 stats["objects"] += 1
-
-                # Count polygons from deform cache or object
                 try:
                     cache = obj.GetDeformCache() or obj.GetCache()
                     target = cache if cache else obj
@@ -1019,172 +896,14 @@ def get_scene_stats(doc):
                         stats["polygons"] += target.GetPolygonCount()
                 except:
                     pass
-
-                # Count lights
                 if _is_light_obj(obj):
                     stats["lights"] += 1
-
-        # Texture count (unique files)
-        all_paths = _collect_all_texture_paths(doc)
-        seen_paths = set()
-        for entry in all_paths:
-            p = entry.get("path", "")
-            if p and p not in seen_paths:
-                seen_paths.add(p)
-        stats["textures"] = len(seen_paths)
 
     except Exception as e:
         safe_print(f"Error getting scene stats: {e}")
 
     check_cache.set(doc, "stats", stats)
     return stats
-
-# ---------------- Redshift node texture paths ----------------
-RS_NODESPACE = "com.redshift3d.redshift4c4d.class.nodespace"
-RS_TEXTURE_NODE_ID = "com.redshift3d.redshift4c4d.nodes.core.texturesampler"
-
-def check_rs_node_textures(doc):
-    """Check Redshift node materials for texture paths (absolute or missing)"""
-    cached = check_cache.get(doc, "rs_tex")
-    if cached is not None:
-        return cached
-
-    issues = []
-
-    if not MAXON_AVAILABLE:
-        check_cache.set(doc, "rs_tex", issues)
-        return issues
-
-    doc_path = doc.GetDocumentPath() or ""
-
-    try:
-        for mat in doc.GetMaterials():
-            if not mat:
-                continue
-            mat_name = mat.GetName()
-
-            # Check if this is a node material with RS space
-            try:
-                nodeMat = mat.GetNodeMaterialReference()
-                if not nodeMat or not nodeMat.HasSpace(RS_NODESPACE):
-                    continue
-            except:
-                continue
-
-            # Access the graph
-            try:
-                graph = nodeMat.GetGraph(RS_NODESPACE)
-                if not graph:
-                    continue
-            except:
-                continue
-
-            # Scan all nodes in graph for texture paths
-            try:
-                root = graph.GetViewRoot()
-
-                def check_port_value(port, mat_name):
-                    """Extract file path from a port value if present"""
-                    try:
-                        val = None
-                        try:
-                            val = port.GetPortValue()
-                        except:
-                            try:
-                                val = port.GetDefaultValue()
-                            except:
-                                return None
-
-                        if val is None:
-                            return None
-
-                        # Try maxon.Url methods
-                        filepath = ""
-                        try:
-                            if hasattr(val, 'GetSystemPath'):
-                                filepath = str(val.GetSystemPath())
-                        except:
-                            pass
-                        if not filepath:
-                            try:
-                                if hasattr(val, 'ToString'):
-                                    filepath = str(val.ToString())
-                            except:
-                                pass
-                        if not filepath:
-                            filepath = str(val)
-
-                        # Must look like a file path
-                        if (not filepath or filepath == "None" or len(filepath) < 4
-                                or not ("/" in filepath or "\\" in filepath)):
-                            return None
-
-                        # Skip internal
-                        if filepath.startswith("asset:") or filepath.startswith("preset:"):
-                            return None
-
-                        return filepath
-                    except:
-                        return None
-
-                def scan_ports_recursive(port, mat_name):
-                    """Recursively scan port and all sub-ports for file paths"""
-                    if not port:
-                        return
-
-                    # Check this port's value
-                    filepath = check_port_value(port, mat_name)
-                    if filepath:
-                        issue = {"material": mat_name, "path": filepath, "type": ""}
-                        if _is_absolute_path(filepath):
-                            issue["type"] = "absolute"
-                            issues.append(issue)
-                        elif doc_path:
-                            resolved = os.path.join(doc_path, filepath)
-                            if not os.path.exists(resolved):
-                                issue["type"] = "missing"
-                                issue["resolved"] = resolved
-                                issues.append(issue)
-
-                    # Recurse into sub-ports (port bundles like tex0 -> tex0.path)
-                    try:
-                        for child_port in port.GetChildren():
-                            scan_ports_recursive(child_port, mat_name)
-                    except:
-                        pass
-
-                def scan_node(node, depth=0):
-                    """Recursively scan nodes for texture file paths"""
-                    if not node or depth > 10:
-                        return
-
-                    try:
-                        # Scan all input ports AND their sub-ports
-                        inputs = node.GetInputs()
-                        if inputs:
-                            for port in inputs.GetChildren():
-                                scan_ports_recursive(port, mat_name)
-
-                        # Recurse into child nodes
-                        for child in node.GetChildren():
-                            scan_node(child, depth + 1)
-
-                    except:
-                        pass
-
-                scan_node(root)
-
-            except Exception as e:
-                safe_print(f"Error scanning RS nodes in '{mat_name}': {e}")
-
-            if len(issues) > 50:
-                break
-
-    except Exception as e:
-        safe_print(f"Error checking RS node textures: {e}")
-
-    check_cache.set(doc, "rs_tex", issues)
-    return issues
 
 # ---------------- auto-fix functions ----------------
 def fix_lights(doc, lights_bad):
@@ -1308,22 +1027,13 @@ def export_qc_report(doc, results, artist_name):
             "items": obj_list[:50],
         }
 
-    # Missing textures
-    missing_tex = results.get("missing_tex_bad", [])
-    report["checks"]["missing_textures"] = {
-        "status": "PASS" if not missing_tex else "FAIL",
-        "count": len(missing_tex),
-        "label": "Missing texture files",
-        "items": [f"{m['source']}: {m['path']}" for m in missing_tex[:20]],
-    }
-
-    # RS node textures
-    rs_tex = results.get("rs_tex_bad", [])
-    report["checks"]["rs_node_textures"] = {
-        "status": "PASS" if not rs_tex else "FAIL",
-        "count": len(rs_tex),
-        "label": "Redshift node texture issues",
-        "items": [f"[{t['type']}] {t['material']}: {t['path']}" for t in rs_tex[:20]],
+    # Unified textures check
+    tex_bad = results.get("textures_bad", [])
+    report["checks"]["textures"] = {
+        "status": "PASS" if not tex_bad else "FAIL",
+        "count": len(tex_bad),
+        "label": "Texture issues (absolute paths + missing files)",
+        "items": [f"[{t['issue'].upper()}] {t['source']}: {t['path']}" for t in tex_bad[:30]],
     }
 
     # Scene stats
@@ -1334,7 +1044,6 @@ def export_qc_report(doc, results, artist_name):
     # Info-only checks
     for key, label, count in [
         ("render_presets", "Non-standard presets", results.get("rdc_count", 0)),
-        ("asset_paths", "Absolute asset paths", results.get("paths_count", 0)),
         ("output_paths", "Output path issues", results.get("output_count", 0)),
     ]:
         report["checks"][key] = {
@@ -1343,12 +1052,6 @@ def export_qc_report(doc, results, artist_name):
             "label": label,
         }
 
-    # Add detail for paths
-    if results.get("paths_bad"):
-        report["checks"]["asset_paths"]["items"] = [
-            f"{p.get('type')}: {p.get('material', p.get('object', '?'))} -> {p.get('path', '?')}"
-            for p in results["paths_bad"][:20]
-        ]
     if results.get("output_bad"):
         report["checks"]["output_paths"]["items"] = [
             f"[{i['preset']}] {i['issue']}" for i in results["output_bad"][:10]
@@ -1386,7 +1089,7 @@ class StatusArea(gui.GeUserArea):
     def __init__(self):
         super().__init__()
         self.data = {}
-        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "paths": True, "unused_mats": True, "names": True, "output": True, "missing_tex": True, "rs_tex": True}
+        self.show = {"lights": True, "vis": True, "keys": True, "cam": True, "rdc": True, "textures": True, "unused_mats": True, "names": True, "output": True}
         self.pad = 3
         self.rowh = 20  # Compact rows, aligned with button column
         self.font = c4d.FONT_MONOSPACED  # Terminal-style monospace font
@@ -1493,16 +1196,14 @@ class StatusArea(gui.GeUserArea):
                         status = "[ OK ]"
                         message = "Render presets compliant"
                         text_col = c4d.Vector(0.3, 1, 0.3)  # Green text
-                elif mode == "paths":
+                elif mode == "textures":
                     if val > 0:
                         status = "[FAIL]"
-                        names = self.data.get("paths_names", [])
-                        first = names[0] if names else "asset"
-                        message = f"Absolute path: {first}" + (f" (+{val-1} more)" if val > 1 else "")
+                        message = f"{val} texture issue(s)"
                         text_col = c4d.Vector(1, 0.3, 0.3)
                     else:
                         status = "[ OK ]"
-                        message = "All assets use relative paths"
+                        message = "All textures OK"
                         text_col = c4d.Vector(0.3, 1, 0.3)
                 elif mode == "unused_mats":
                     if val > 0:
@@ -1532,24 +1233,6 @@ class StatusArea(gui.GeUserArea):
                     else:
                         status = "[ OK ]"
                         message = "Output paths configured"
-                        text_col = c4d.Vector(0.3, 1, 0.3)
-                elif mode == "missing_tex":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} missing texture file(s)"
-                        text_col = c4d.Vector(1, 0.3, 0.3)
-                    else:
-                        status = "[ OK ]"
-                        message = "All textures found"
-                        text_col = c4d.Vector(0.3, 1, 0.3)
-                elif mode == "rs_tex":
-                    if val > 0:
-                        status = "[FAIL]"
-                        message = f"{val} RS node texture issue(s)"
-                        text_col = c4d.Vector(1, 0.3, 0.3)
-                    else:
-                        status = "[ OK ]"
-                        message = "RS textures OK"
                         text_col = c4d.Vector(0.3, 1, 0.3)
                 else:
                     status = "[ OK ]" if val <= 0 else "[FAIL]"
@@ -1591,12 +1274,10 @@ class StatusArea(gui.GeUserArea):
                 ("Keyframes", "keys", "keys"),
                 ("Cameras", "cam", "cam"),
                 ("Presets", "rdc", "rdc"),
-                ("Asset Paths", "paths", "paths"),
+                ("Textures", "textures", "textures"),
                 ("Materials", "unused_mats", "unused_mats"),
                 ("Naming", "names", "names"),
                 ("Output", "output", "output"),
-                ("Textures", "missing_tex", "missing_tex"),
-                ("RS Nodes", "rs_tex", "rs_tex"),
             ]
 
             for label, key, mode in mapping:
@@ -1704,13 +1385,10 @@ class G:
     BTN_SEL_KEYS = 1132
     BTN_SEL_CAMS = 1133
     BTN_INFO_PRESET = 1134
-    BTN_INFO_PATHS = 1135
+    BTN_INFO_TEXTURES = 1135
     BTN_SEL_UNUSED_MATS = 1136
     BTN_SEL_NAMES = 1137
     BTN_INFO_OUTPUT = 1138
-
-    BTN_INFO_MISSING_TEX = 1139
-    BTN_INFO_RS_TEX = 1143
 
     # Auto-fix buttons
     BTN_FIX_LIGHTS = 1140
@@ -1756,12 +1434,10 @@ class YSPanel(gui.GeDialog):
         self._vis_bad = []
         self._keys_bad = []
         self._cam_bad = []
-        self._paths_bad = []
+        self._textures_bad = []
         self._unused_mats_bad = []
         self._names_bad = []
         self._output_bad = []
-        self._missing_tex_bad = []
-        self._rs_tex_bad = []
         self._scene_stats = {}
 
         # Cycling indices for one-by-one selection
@@ -1900,12 +1576,10 @@ class YSPanel(gui.GeDialog):
             keys_bad = check_keys(doc)
             cam_bad = check_camera_shift(doc)
             rdc_bad = check_render_conflicts(doc)
-            paths_bad = check_texture_paths(doc)
+            textures_bad = check_textures_unified(doc)
             unused_mats_bad = check_unused_materials(doc)
             names_bad = check_default_names(doc)
             output_bad = check_output_paths(doc)
-            missing_tex_bad = check_missing_textures(doc)
-            rs_tex_bad = check_rs_node_textures(doc)
             scene_stats = get_scene_stats(doc)
 
             # Count issues
@@ -1914,12 +1588,10 @@ class YSPanel(gui.GeDialog):
             keys_count = len(keys_bad) if keys_bad else 0
             cam_count = len(cam_bad) if cam_bad else 0
             rdc_count = int(rdc_bad) if rdc_bad else 0
-            paths_count = len(paths_bad) if paths_bad else 0
+            textures_count = len(textures_bad) if textures_bad else 0
             unused_mats_count = len(unused_mats_bad) if unused_mats_bad else 0
             names_count = len(names_bad) if names_bad else 0
             output_count = len(output_bad) if output_bad else 0
-            missing_tex_count = len(missing_tex_bad) if missing_tex_bad else 0
-            rs_tex_count = len(rs_tex_bad) if rs_tex_bad else 0
 
             # Update StatusArea
             self.ua.set_state(
@@ -1931,17 +1603,11 @@ class YSPanel(gui.GeDialog):
                     keys_names=[(o.GetName() or "object") for o in (keys_bad[:10] if keys_bad else [])],
                     cam=cam_count,
                     rdc=rdc_count,
-                    paths=paths_count,
-                    paths_names=[
-                        f"{'RS tex' if 'redshift' in p['type'] else p['type']}: {p.get('material', p.get('object', 'unknown'))}"
-                        for p in (paths_bad[:10] if paths_bad else [])
-                    ],
+                    textures=textures_count,
                     unused_mats=unused_mats_count,
                     names=names_count,
                     names_list=[(o.GetName() or "unnamed") for o in (names_bad[:10] if names_bad else [])],
                     output=output_count,
-                    missing_tex=missing_tex_count,
-                    rs_tex=rs_tex_count,
                 ),
                 self._flags(),
             )
@@ -1951,9 +1617,7 @@ class YSPanel(gui.GeDialog):
             self._vis_bad = vis_bad
             self._keys_bad = keys_bad
             self._cam_bad = cam_bad
-            self._paths_bad = paths_bad
-            self._missing_tex_bad = missing_tex_bad
-            self._rs_tex_bad = rs_tex_bad
+            self._textures_bad = textures_bad
             self._scene_stats = scene_stats
             # Reset cycling indices when results change
             if unused_mats_bad != self._unused_mats_bad:
@@ -1999,7 +1663,7 @@ class YSPanel(gui.GeDialog):
         self.AttachUserArea(self.ua, G.CANVAS)
 
         # Right: per-check Select + Fix buttons (2 columns, matched to StatusArea rows)
-        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 11)
+        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 8)
         self.GroupBorderSpace(0, 3, 0, 3)
         self.GroupSpace(2, 3)
         # Row: LIGHTS
@@ -2017,8 +1681,8 @@ class YSPanel(gui.GeDialog):
         # Row: PRESETS
         self.AddButton(G.BTN_INFO_PRESET, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
-        # Row: PATHS
-        self.AddButton(G.BTN_INFO_PATHS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
+        # Row: TEXTURES (unified)
+        self.AddButton(G.BTN_INFO_TEXTURES, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         # Row: UNUSED MATS
         self.AddButton(G.BTN_SEL_UNUSED_MATS, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Select")
@@ -2028,12 +1692,6 @@ class YSPanel(gui.GeDialog):
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         # Row: OUTPUT
         self.AddButton(G.BTN_INFO_OUTPUT, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
-        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
-        # Row: MISSING TEXTURES
-        self.AddButton(G.BTN_INFO_MISSING_TEX, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
-        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
-        # Row: RS NODE TEXTURES
-        self.AddButton(G.BTN_INFO_RS_TEX, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         self.GroupEnd()
 
@@ -2264,19 +1922,24 @@ class YSPanel(gui.GeDialog):
                 rd = rd.GetNext()
             c4d.gui.MessageDialog(info_msg)
 
-        elif cid == G.BTN_INFO_PATHS:
-            if self._paths_bad:
-                info_msg = f"ABSOLUTE PATHS: {len(self._paths_bad)} found\n\n"
-                for i, p in enumerate(self._paths_bad[:15], 1):
-                    asset_type = p.get('type', 'unknown')
-                    source = p.get('material', p.get('object', 'unknown'))
-                    info_msg += f"{i}. {asset_type.upper()} in '{source}'\n"
-                    info_msg += f"   {p.get('path', 'unknown')}\n\n"
-                if len(self._paths_bad) > 15:
-                    info_msg += f"... and {len(self._paths_bad) - 15} more\n\n"
+        elif cid == G.BTN_INFO_TEXTURES:
+            if self._textures_bad:
+                absolute = [t for t in self._textures_bad if t["issue"] == "absolute"]
+                missing = [t for t in self._textures_bad if t["issue"] == "missing"]
+                info_msg = f"TEXTURE ISSUES: {len(self._textures_bad)}\n\n"
+                if absolute:
+                    info_msg += f"ABSOLUTE PATHS ({len(absolute)}):\n"
+                    for i, t in enumerate(absolute[:10], 1):
+                        info_msg += f"  {i}. {t['source']}\n     {t['path']}\n"
+                    info_msg += "\n"
+                if missing:
+                    info_msg += f"MISSING FILES ({len(missing)}):\n"
+                    for i, t in enumerate(missing[:10], 1):
+                        info_msg += f"  {i}. {t['source']}\n     {t['path']}\n"
+                    info_msg += "\n"
                 info_msg += "Fix: Project > Save Project with Assets"
             else:
-                info_msg = "All asset paths are relative. No issues found."
+                info_msg = "All textures OK. No absolute paths or missing files."
             c4d.gui.MessageDialog(info_msg)
 
         elif cid == G.BTN_SEL_UNUSED_MATS:
@@ -2322,34 +1985,6 @@ class YSPanel(gui.GeDialog):
                 info_msg = "All output paths are properly configured."
             c4d.gui.MessageDialog(info_msg)
 
-        elif cid == G.BTN_INFO_MISSING_TEX:
-            if self._missing_tex_bad:
-                info_msg = f"MISSING TEXTURES: {len(self._missing_tex_bad)}\n\n"
-                for i, entry in enumerate(self._missing_tex_bad[:15], 1):
-                    info_msg += f"{i}. {entry['source']}\n"
-                    info_msg += f"   Path: {entry['path']}\n"
-                    info_msg += f"   Expected: {entry['resolved']}\n\n"
-                if len(self._missing_tex_bad) > 15:
-                    info_msg += f"... and {len(self._missing_tex_bad) - 15} more\n"
-            else:
-                info_msg = "All texture files found on disk."
-            c4d.gui.MessageDialog(info_msg)
-
-        elif cid == G.BTN_INFO_RS_TEX:
-            if self._rs_tex_bad:
-                info_msg = f"RS NODE TEXTURE ISSUES: {len(self._rs_tex_bad)}\n\n"
-                for i, entry in enumerate(self._rs_tex_bad[:15], 1):
-                    issue_type = "ABSOLUTE PATH" if entry["type"] == "absolute" else "MISSING FILE"
-                    info_msg += f"{i}. [{issue_type}] Material '{entry['material']}'\n"
-                    info_msg += f"   Path: {entry['path']}\n\n"
-                if len(self._rs_tex_bad) > 15:
-                    info_msg += f"... and {len(self._rs_tex_bad) - 15} more\n"
-            else:
-                info_msg = "All Redshift node textures OK."
-                if not MAXON_AVAILABLE:
-                    info_msg += "\n\n(maxon module not available - node scanning disabled)"
-            c4d.gui.MessageDialog(info_msg)
-
         # ── Auto-fix handlers ──
         elif cid == G.BTN_FIX_LIGHTS:
             if self._lights_bad:
@@ -2385,14 +2020,11 @@ class YSPanel(gui.GeDialog):
                 "keys_bad": self._keys_bad,
                 "cam_bad": self._cam_bad,
                 "rdc_count": int(check_render_conflicts(doc) or 0),
-                "paths_bad": self._paths_bad,
-                "paths_count": len(self._paths_bad) if self._paths_bad else 0,
+                "textures_bad": self._textures_bad,
                 "unused_mats_bad": self._unused_mats_bad,
                 "names_bad": self._names_bad,
                 "output_bad": self._output_bad,
                 "output_count": len(self._output_bad) if self._output_bad else 0,
-                "missing_tex_bad": self._missing_tex_bad,
-                "rs_tex_bad": self._rs_tex_bad,
                 "scene_stats": self._scene_stats,
             }
             save_path = export_qc_report(doc, results, self._artist_name)
