@@ -38,20 +38,8 @@ try:
 except ImportError:
     MAXON_AVAILABLE = False
 
-# Import snapshot management modules
+# Import maxon module path
 sys.path.insert(0, os.path.dirname(__file__))
-try:
-    from redshift_snapshot_manager_fixed import RedshiftSnapshotManager, RedshiftSnapshotConfig, get_snapshot_manager
-    from exr_to_png_converter_simple import convert_exr_to_png, get_converter_info
-    SNAPSHOT_AVAILABLE = True
-    converter_info = get_converter_info()
-    EXR_CONVERTER_AVAILABLE = converter_info["available"]
-    EXR_CONVERTER_METHOD = converter_info["method"] if converter_info["available"] else None
-except ImportError as e:
-    safe_print(f"Warning: Snapshot modules import error: {e}")
-    SNAPSHOT_AVAILABLE = False
-    EXR_CONVERTER_AVAILABLE = False
-    EXR_CONVERTER_METHOD = None
 
 # Plugin ID - change if ID collision
 PLUGIN_ID = 2099069
@@ -75,53 +63,66 @@ CHECK_COOLDOWN = 0.5  # Minimum time between checks
 # Global settings file for artist name
 SETTINGS_FILE = "ys_guardian_settings.json"
 
-# ---------------- Artist Name Persistence ----------------
+# ---------------- Settings Persistence ----------------
 class GlobalSettings:
     """Manages computer-level settings (not scene-specific)"""
 
     @staticmethod
-    def get_settings_path() -> str:
-        """Get path to global settings file in user's preferences"""
+    def get_settings_path():
         prefs_path = c4d.storage.GeGetC4DPath(c4d.C4D_PATH_PREFS)
         return os.path.join(prefs_path, SETTINGS_FILE)
 
     @staticmethod
-    def load_artist_name() -> str:
-        """Load artist name from computer-level settings"""
+    def _load():
         settings_path = GlobalSettings.get_settings_path()
-
         if os.path.exists(settings_path):
             try:
                 with open(settings_path, 'r') as f:
-                    settings = json.load(f)
-                    return settings.get('artist_name', '')
+                    return json.load(f)
             except Exception:
                 pass
-
-        return ''
+        return {}
 
     @staticmethod
-    def save_artist_name(artist_name: str) -> bool:
-        """Save artist name to computer-level settings"""
-        settings_path = GlobalSettings.get_settings_path()
-
-        settings = {}
-        if os.path.exists(settings_path):
-            try:
-                with open(settings_path, 'r') as f:
-                    settings = json.load(f)
-            except Exception:
-                pass
-
-        settings['artist_name'] = artist_name
-
+    def _save(settings):
         try:
-            with open(settings_path, 'w') as f:
+            with open(GlobalSettings.get_settings_path(), 'w') as f:
                 json.dump(settings, f, indent=2)
-            verified_name = GlobalSettings.load_artist_name()
-            return verified_name == artist_name
+            return True
         except Exception:
             return False
+
+    @staticmethod
+    def get(key, default=''):
+        return GlobalSettings._load().get(key, default)
+
+    @staticmethod
+    def set(key, value):
+        settings = GlobalSettings._load()
+        settings[key] = value
+        return GlobalSettings._save(settings)
+
+    @staticmethod
+    def load_artist_name():
+        return GlobalSettings.get('artist_name', '')
+
+    @staticmethod
+    def save_artist_name(artist_name):
+        return GlobalSettings.set('artist_name', artist_name)
+
+    @staticmethod
+    def get_snapshot_dir():
+        """Get configured RS snapshot directory, or platform default"""
+        saved = GlobalSettings.get('snapshot_dir', '')
+        if saved:
+            return saved
+        if sys.platform == "darwin":
+            return os.path.expanduser("~/Library/Caches/Redshift/Snapshots")
+        return r"C:\cache\rs snapshots"
+
+    @staticmethod
+    def set_snapshot_dir(path):
+        return GlobalSettings.set('snapshot_dir', path)
 
 # ---------------- Performance Cache ----------------
 class CheckCache:
@@ -1189,87 +1190,142 @@ class StatusArea(gui.GeUserArea):
             safe_print(f"Error in DrawMsg: {e}")
 
 # ---------------- Snapshot Handler ----------------
-class SnapshotHandler:
-    """Handles all snapshot operations"""
+# ---------------- Snapshot System (cross-platform) ----------------
+def _aces_tonemap(r, g, b):
+    """ACES filmic tone mapping (Stephen Hill approximation)"""
+    def _t(x):
+        x = max(0.0, x)
+        return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)
+    return _t(r), _t(g), _t(b)
 
-    def __init__(self):
-        self.snapshot_manager = get_snapshot_manager() if SNAPSHOT_AVAILABLE else None
+def _get_stills_dir(doc, artist_name):
+    """Get output directory: project_root/output/stills/Artist/YYMMDD/"""
+    from datetime import datetime
+    doc_path = doc.GetDocumentPath() or ""
+    if doc_path:
+        project_root = os.path.dirname(os.path.dirname(doc_path))
+    else:
+        project_root = os.path.join(os.path.expanduser("~"), "YS_Guardian_Output")
 
-    def take_snapshot(self, doc, artist_name):
-        """Process snapshot - grab EXR from cache and convert to PNG"""
-        if not SNAPSHOT_AVAILABLE or not self.snapshot_manager:
-            c4d.gui.MessageDialog("Still save system not available.\nPlease install OpenEXR: pip install OpenEXR-Python")
-            return
+    output_dir = os.path.join(
+        project_root, "output", "stills",
+        artist_name or "Unknown",
+        datetime.now().strftime("%y%m%d")
+    )
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
 
-        if not artist_name:
-            c4d.gui.MessageDialog("Please set your artist name first!")
-            return
+def _find_latest_exr():
+    """Find the most recent EXR in the RS snapshot directory"""
+    snap_dir = GlobalSettings.get_snapshot_dir()
+    if not os.path.exists(snap_dir):
+        return None, f"Snapshot directory not found:\n{snap_dir}\n\nConfigure it in Redshift RenderView > Preferences > Snapshots"
 
-        # Process the snapshot (find EXR, convert, and save)
-        output_path, error = self.snapshot_manager.process_snapshot(doc, artist_name)
+    exr_files = []
+    for f in os.listdir(snap_dir):
+        if f.lower().endswith('.exr'):
+            full = os.path.join(snap_dir, f)
+            exr_files.append((full, os.path.getmtime(full)))
 
-        if output_path:
-            self._show_success(output_path)
-        else:
-            c4d.gui.MessageDialog(error or "Failed to process snapshot")
+    if not exr_files:
+        return None, f"No EXR snapshots found in:\n{snap_dir}\n\nTake a snapshot in RS RenderView first."
 
-    def open_artist_folder(self, doc, artist_name):
-        """Open the artist's output folder"""
-        if not artist_name:
-            c4d.gui.MessageDialog("Please set your artist name first!")
-            return
+    exr_files.sort(key=lambda x: x[1], reverse=True)
+    return exr_files[0][0], None
 
-        # Get the output directory
-        output_dir = RedshiftSnapshotConfig.get_scene_snapshot_dir(doc, artist_name)
+def _convert_exr_to_png(exr_path, png_path):
+    """Convert EXR to PNG using C4D BaseBitmap + ACES tone mapping"""
+    # Load EXR via C4D (native, cross-platform)
+    src = c4d.bitmaps.BaseBitmap()
+    result = src.InitWith(exr_path)
+    if result[0] != c4d.IMAGERESULT_OK:
+        return False, f"Failed to load EXR: {exr_path}"
 
-        if output_dir and os.path.exists(output_dir):
-            open_in_explorer(output_dir)
-        else:
-            c4d.gui.MessageDialog(f"Artist folder not found:\n{output_dir}")
+    w = src.GetBw()
+    h = src.GetBh()
+    depth = src.GetBt()
 
-    def _show_success(self, path):
-        """Show success message and open in Picture Viewer"""
-        try:
-            # Load and show in Picture Viewer
-            bmp = c4d.bitmaps.BaseBitmap()
-            if bmp.InitWith(path)[0] == c4d.IMAGERESULT_OK:
-                # Get image dimensions for aspect ratio
-                width = bmp.GetBw()
-                height = bmp.GetBh()
+    # Create output bitmap (8-bit RGB for PNG)
+    dst = c4d.bitmaps.BaseBitmap()
+    dst.Init(w, h, 24)
 
-                # Calculate aspect ratio
-                if height > 0:
-                    aspect_ratio = width / height
-                    # Format as common ratio
-                    if abs(aspect_ratio - 1.778) < 0.01:
-                        aspect_str = "16:9"
-                    elif abs(aspect_ratio - 1.333) < 0.01:
-                        aspect_str = "4:3"
-                    elif abs(aspect_ratio - 2.35) < 0.05:
-                        aspect_str = "2.35:1"
-                    elif abs(aspect_ratio - 1.0) < 0.01:
-                        aspect_str = "1:1"
-                    else:
-                        aspect_str = f"{aspect_ratio:.2f}:1"
-                else:
-                    aspect_str = "Unknown"
+    # Check if HDR (32-bit per channel = 96 or 128 bit total)
+    is_hdr = depth >= 96
 
-                c4d.bitmaps.ShowBitmap(bmp)
-
-                filename = os.path.basename(path)
-                folder = os.path.dirname(path)
-                c4d.gui.MessageDialog(f"Still saved!\n\nFile: {filename}\nResolution: {width}x{height} ({aspect_str})\nFolder: {folder}")
+    for y in range(h):
+        for x in range(w):
+            if is_hdr:
+                # GetPixelDirect returns float values but may be clamped
+                # For HDR EXR, pixel values can exceed 1.0
+                r, g, b = src.GetPixelDirect(x, y)
             else:
-                # If we can't load the bitmap, still show basic success
-                filename = os.path.basename(path)
-                folder = os.path.dirname(path)
-                c4d.gui.MessageDialog(f"Still saved!\n\nFile: {filename}\nFolder: {folder}")
+                # 8/16 bit: GetPixel returns 0-255
+                ri, gi, bi = src.GetPixel(x, y)
+                r, g, b = ri / 255.0, gi / 255.0, bi / 255.0
 
-        except Exception:
-            pass
+            # Apply ACES tone mapping
+            r, g, b = _aces_tonemap(r, g, b)
 
-# Global snapshot handler
-_snapshot_handler = SnapshotHandler()
+            # Clamp and convert to 8-bit
+            ri = max(0, min(255, int(r * 255)))
+            gi = max(0, min(255, int(g * 255)))
+            bi = max(0, min(255, int(b * 255)))
+            dst.SetPixel(x, y, ri, gi, bi)
+
+    # Save as PNG
+    save_result = dst.Save(png_path, c4d.FILTER_PNG)
+    if save_result != c4d.IMAGERESULT_OK:
+        return False, f"Failed to save PNG: {png_path}"
+
+    return True, None
+
+def snapshot_save_still(doc, artist_name):
+    """Main entry point: find latest EXR, convert with ACES, save to project"""
+    if not artist_name:
+        c4d.gui.MessageDialog("Please set your artist name first!")
+        return
+
+    # Find latest EXR
+    exr_path, error = _find_latest_exr()
+    if not exr_path:
+        c4d.gui.MessageDialog(error)
+        return
+
+    # Build output path
+    output_dir = _get_stills_dir(doc, artist_name)
+    doc_name = doc.GetDocumentName() or "untitled"
+    scene_name = os.path.splitext(doc_name)[0]
+    png_path = os.path.join(output_dir, f"{scene_name}.png")
+
+    safe_print(f"Converting {os.path.basename(exr_path)} -> {png_path}")
+
+    # Convert
+    success, error = _convert_exr_to_png(exr_path, png_path)
+    if not success:
+        c4d.gui.MessageDialog(f"Conversion failed:\n{error}")
+        return
+
+    # Show in Picture Viewer
+    bmp = c4d.bitmaps.BaseBitmap()
+    if bmp.InitWith(png_path)[0] == c4d.IMAGERESULT_OK:
+        c4d.bitmaps.ShowBitmap(bmp)
+        w, h = bmp.GetBw(), bmp.GetBh()
+        c4d.gui.MessageDialog(f"Still saved!\n\nFile: {os.path.basename(png_path)}\nResolution: {w}x{h}\nFolder: {output_dir}")
+    else:
+        c4d.gui.MessageDialog(f"Still saved!\n\n{png_path}")
+
+    safe_print(f"Still saved: {png_path}")
+
+def snapshot_open_folder(doc, artist_name):
+    """Open the artist's stills folder"""
+    if not artist_name:
+        c4d.gui.MessageDialog("Please set your artist name first!")
+        return
+    output_dir = _get_stills_dir(doc, artist_name)
+    if os.path.exists(output_dir):
+        open_in_explorer(output_dir)
+    else:
+        c4d.gui.MessageDialog(f"Folder not found:\n{output_dir}")
 
 # ---------------- UI Widget IDs ----------------
 class G:
@@ -1924,7 +1980,7 @@ class YSPanel(gui.GeDialog):
             c4d.gui.MessageDialog("No active document!")
             return
 
-        _snapshot_handler.open_artist_folder(doc, self._artist_name)
+        snapshot_open_folder(doc, self._artist_name)
 
     def _create_vibrate_null(self, doc):
         self._merge_c4d_file(doc, "VibrateNull.c4d")
@@ -2697,7 +2753,7 @@ class YSPanel(gui.GeDialog):
             c4d.gui.MessageDialog("Please set your artist name first!")
             return
 
-        _snapshot_handler.take_snapshot(doc, self._artist_name)
+        snapshot_save_still(doc, self._artist_name)
 
     def _apply_abc_retime_tag(self):
         """Apply ABC Retime tag to selected object(s)"""
@@ -2827,20 +2883,8 @@ if __name__ == "__main__":
     # Print setup info using safe_print to avoid None returns in console
     safe_print("\n" + "="*50)
     safe_print(f"{PLUGIN_NAME}")
-    safe_print("="*50)
-
-    if SNAPSHOT_AVAILABLE and EXR_CONVERTER_AVAILABLE:
-        safe_print("Snapshot Support: ENABLED")
-        safe_print(f"  Converter: {EXR_CONVERTER_METHOD}")
-        safe_print("  Tone Mapping: ACES RRT/ODT (matches scene)")
-    else:
-        safe_print("Snapshot Support: DISABLED")
-        if not SNAPSHOT_AVAILABLE:
-            safe_print("  Missing dependencies for snapshot support")
-
-    safe_print("Watcher Status: ACTIVE")
-    safe_print("  9 Quality Checks active")
-    safe_print("  Real-time Monitoring: Enabled")
+    safe_print(f"  Snapshot dir: {GlobalSettings.get_snapshot_dir()}")
+    safe_print(f"  9 Quality Checks | ACES tone mapping")
     safe_print("="*50 + "\n")
 
     Register()
