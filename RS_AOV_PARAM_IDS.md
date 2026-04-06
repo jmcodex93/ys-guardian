@@ -1,107 +1,149 @@
-# Redshift AOV Parameter IDs - Cinema 4D 2026
+# Redshift AOV Parameter IDs — Cinema 4D 2026
 
-> **Why this file exists**: Maxon does NOT document the internal parameter IDs
-> for Redshift AOV objects in their Python SDK. All IDs in this file were
-> discovered by probing RSAOV and RS VideoPost objects at runtime, comparing
-> values before and after manual changes in the AOV Manager UI.
+> **Why this file exists**: Maxon does NOT document these parameter IDs in their
+> Python SDK reference. All values were discovered by probing `RSAOV` and RS
+> `VideoPost` objects at runtime. Named constants were later found via `dir(c4d)`.
 >
-> These IDs may change between RS/C4D versions. If something breaks after an
-> update, re-probe using the technique described in the Discovery Method section.
+> These IDs may change between RS/C4D versions. If something breaks, re-probe
+> using the Discovery Method at the bottom of this file.
 
 ---
 
-## RSAOV Object — Direct Output Parameters
+## Named Constants (exist in c4d module)
 
-The primary output method for production. Each AOV has its own Direct Output config.
+### Per-AOV: Direct Output (`REDSHIFT_AOV_FILE_*`)
+| Constant | ID | Purpose | Values |
+|----------|-----|---------|--------|
+| `REDSHIFT_AOV_FILE_ENABLED` | 5001 | Direct Output enable | 0=off, 1=on |
+| `REDSHIFT_AOV_FILE_PATH` | 6000 | Output file path | str, default: `$filepath$filename_$pass` |
+| `REDSHIFT_AOV_FILE_DATA_TYPE` | 6001 | Data type | See DATATYPE constants below |
+| `REDSHIFT_AOV_FILE_FORMAT` | 6002 | File format | See FORMAT constants below |
+| `REDSHIFT_AOV_FILE_BIT_DEPTH` | 6003 | Bit depth | See BIT_DEPTH constants below |
+| `REDSHIFT_AOV_FILE_COMPRESSION` | 6004 | Compression | See COMPRESSION constants below |
+| `REDSHIFT_AOV_FILE_STORAGE` | 6005 | Storage mode | 0=Scanline, 1=Tiled |
+| `REDSHIFT_AOV_FILE_JPEG_QUALITY` | 6006 | JPEG quality | int (0-100) |
+| `REDSHIFT_AOV_FILE_EXR_DWA_COMPRESSION` | 6007 | DWA compression level | float, default 45.0 |
+| `REDSHIFT_AOV_FILE_EFFECTIVE_PATH` | 6008 | Resolved path (read-only) | str |
 
-| ID | Name | Type | Values | Verified |
-|----|------|------|--------|----------|
-| 5001 | Direct Output > Enabled | int | 0=off, 1=on | Yes — toggled on/off, confirmed in UI |
-| 6000 | Direct > Path | str | `$filepath$filename_$pass` (default) | Yes — read matches UI |
-| 6001 | Direct > Data Type | int | 0=RGB, 1=RGBA, 3=Scalar (auto for Depth) | Yes — changed RGB→RGBA, confirmed |
-| 6003 | Direct > Format + Bit Depth | int | 3=OpenEXR Half Float (16-bit), 4=OpenEXR Float (32-bit) | Yes — changed 16→32 on Depth, confirmed |
-| 6005 | Direct > Storage | int | 0=Scanline, 1=Tiled | Assumed from RS docs |
-| 6006 | Direct > Compression | int | 95 (default) | Read-only probe |
-| 6007 | Direct > DWA Compression | float | 45.0 (default, "perceptually lossless") | Read-only probe |
-| 6008 | Direct > Effective Path | str | Computed, read-only | Yes — shows resolved path |
+### Data Type Constants (`REDSHIFT_AOV_FILE_DATATYPE_*`)
+| Constant | Value | Use |
+|----------|-------|-----|
+| `REDSHIFT_AOV_FILE_DATATYPE_RGB` | 0 | Utility passes (Depth, MV, Normals) |
+| `REDSHIFT_AOV_FILE_DATATYPE_RGBA` | 1 | Beauty/color passes (alpha for transparency) |
+| `REDSHIFT_AOV_FILE_DATATYPE_POINT` | 2 | Point data |
+| `REDSHIFT_AOV_FILE_DATATYPE_SCALAR` | 3 | Single channel (Depth uses this automatically) |
 
-### IDs with unknown purpose (always constant in probes)
-| ID | Value | Notes |
-|----|-------|-------|
-| 6002 | 0 | Always 0 across all AOV types. Unknown purpose. |
-| 6004 | Compression | 1=Default, 201=ZIP, 202=ZIPS, 203=PIZ, 206=DWAA, 207=DWAB. Was misidentified as bit depth initially. |
-| 6009 | None | Empty / not set |
+### Format Constants (`REDSHIFT_AOV_FILE_FORMAT_*`)
+| Constant | Value |
+|----------|-------|
+| `REDSHIFT_AOV_FILE_FORMAT_OPENEXR` | 0 |
+| `REDSHIFT_AOV_FILE_FORMAT_TIFF` | 1 |
+| `REDSHIFT_AOV_FILE_FORMAT_PNG` | 2 |
+| `REDSHIFT_AOV_FILE_FORMAT_TGA` | 3 |
+| `REDSHIFT_AOV_FILE_FORMAT_JPEG` | 4 |
+
+### Bit Depth Constants (`REDSHIFT_AOV_FILE_BIT_DEPTH_*`)
+| Constant | Value | Use |
+|----------|-------|-----|
+| `REDSHIFT_AOV_FILE_BIT_DEPTH_INT8` | 0 | 8-bit (not for compositing) |
+| `REDSHIFT_AOV_FILE_BIT_DEPTH_INT16` | 1 | 16-bit integer |
+| `REDSHIFT_AOV_FILE_BIT_DEPTH_INT32` | 2 | 32-bit integer |
+| `REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT16` | 3 | 16-bit half float (beauty passes) |
+| `REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT32` | 4 | 32-bit float (utility passes) |
+
+### Compression Constants (`REDSHIFT_AOV_FILE_COMPRESSION_*`)
+| Constant | Value | Type | Use |
+|----------|-------|------|-----|
+| `REDSHIFT_AOV_FILE_COMPRESSION_NONE` | 0 | Lossless | Largest files |
+| `REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT` | 1 | — | RS default |
+| `REDSHIFT_AOV_FILE_COMPRESSION_TIFF_LZW` | 100 | Lossless | TIFF only |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_RLE` | 200 | Lossless | Run-length |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIP` | 201 | Lossless | Good balance |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIPS` | 202 | Lossless | Single scanline |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_PIZ` | 203 | Lossless | Good for utility/data passes |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_PXR24` | 204 | Lossy | 24-bit precision |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_B44` | 205 | Lossy | Fixed rate |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAA` | 206 | Lossy | Perceptually lossless at 45 |
+| `REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAB` | 207 | Lossy | Block variant of DWAA |
+
+### Per-AOV: Multi-Pass Output
+| Constant | ID | Purpose | Values |
+|----------|-----|---------|--------|
+| `REDSHIFT_AOV_MULTIPASS_ENABLED` | 5000 | Multi-Pass enable | 0=off, 1=on |
+| `REDSHIFT_AOV_MULTIPASS_BIT_DEPTH` | 1002 | Bit depth | 0=8, 1=16, 2=32 |
+
+### Global AOV Settings (RS VideoPost)
+| Constant | ID | Purpose | Values |
+|----------|-----|---------|--------|
+| `REDSHIFT_RENDERER_AOV_GLOBAL_MODE` | 3001 | AOV Mode | 0=Disable, 1=Enable, 2=Batch Only |
+| `REDSHIFT_RENDERER_AOV_MULTIPART` | 3003 | Multi-Part EXR | bool |
+| `REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH` | 3005 | Global bit depth | Same as per-AOV |
+| `REDSHIFT_RENDERER_AOV_FILE_COMPRESSION` | 3006 | Global compression | Same as per-AOV |
+| `REDSHIFT_RENDERER_AOV_FILE_EXR_DWA_COMPRESSION` | 3007 | Global DWA level | float |
+| `REDSHIFT_RENDERER_AOV_FILE_STORAGE` | 3008 | Global storage | 0=Scanline, 1=Tiled |
+| `REDSHIFT_RENDERER_AOV_MULTIPASS_COMPATIBILITY` | 3009 | Multi-Pass compat | bool |
 
 ---
 
-## RSAOV Object — Multi-Pass Parameters
+## Per-AOV Option Params (ID range 1000-1029)
 
-C4D-integrated output method. Less control than Direct Output.
+Discovered by probing. These control AOV-specific options like Depth mode and MV settings.
 
-| ID / Constant | Name | Type | Values | Verified |
-|---------------|------|------|--------|----------|
-| 5000 / `REDSHIFT_AOV_MULTIPASS_ENABLED` | Multi-Pass > Enabled | int | 0=off, 1=on | Yes |
-| 1002 / `REDSHIFT_AOV_BITS_PER_CHANNEL` | Multi-Pass > Bits Per Channel | int | 0=8-bit, 1=16-bit half, 2=32-bit float | Yes |
-
----
-
-## RSAOV Object — General Parameters
-
-| ID / Constant | Name | Type | Values | Verified |
-|---------------|------|------|--------|----------|
-| `REDSHIFT_AOV_TYPE` | AOV Type | int | See type table below | Yes |
-| `REDSHIFT_AOV_NAME` | Display Name | str | User-editable name | Yes |
-| `REDSHIFT_AOV_ENABLED` | Master Enable | bool | True/False | Yes |
-
-### AOV Option Params (ID range 1000-1029)
+### General (all AOV types)
 | ID | Name | Type | Default | Notes |
 |----|------|------|---------|-------|
-| 1000 | (AOV Type numeric) | int | varies | Mirrors REDSHIFT_AOV_TYPE |
-| 1001 | (AOV Name) | str | varies | Mirrors REDSHIFT_AOV_NAME |
-| 1002 | Multi-Pass Bit Depth | int | 2 (32-bit) | Multi-Pass only |
-| 1003 | (unknown) | int | 1 | |
-| 1004 | Depth: Filter Type | int | 0=Full, 1=Min Depth, 2=Max Depth, 3=Center Sample | 3 for Nuke (no interpolation) |
+| 1000 | AOV Type (numeric) | int | varies | Mirrors `REDSHIFT_AOV_TYPE` |
+| 1001 | AOV Name | str | varies | Mirrors `REDSHIFT_AOV_NAME` |
+| 1002 | Multi-Pass Bit Depth | int | 2 | 0=8, 1=16, 2=32 |
+| 1003 | (internal type flag) | int | varies | 1=Depth, 3=MV, 5=Diffuse etc. |
+| 1004 | Depth: Filter Type | int | 0 | **0=Full, 1=Min, 2=Max, 3=Center Sample** |
 | 1005 | (unknown) | Vector | (1,1,1) | |
-| 1006 | Apply Color Processing | int | 1=on | Should be 0 for compositing |
+| 1006 | Apply Color Processing | int | 1 | **Should be 0 for compositing (linear data)** |
 | 1007 | (unknown) | int | 0 | |
-| 1008 | MV: Output Raw Vectors | int | 0=off, 1=on | ON for Nuke (raw pixel displacement) |
-| 1009 | MV: No Clamp | int | 0=off, 1=on | ON for Nuke (preserve full motion range) |
-| 1010 | MV: Max Motion (pixels) | int | 8 | Irrelevant when No Clamp=ON |
-| 1011 | MV: Image Output Min | float | 0.0 | Irrelevant when Raw Vectors=ON |
-| 1012 | MV: Image Output Max | float | 1.0 | Irrelevant when Raw Vectors=ON |
-| 1013 | MV: Filtering | int | 1=on, 0=off | OFF for Nuke (prevents edge smearing) |
-| 1019 | Depth: Depth Mode | int | 0=Z, 1=Z Normalized, 2=Z Normalized Inverted | 0 for Nuke (planar Z) |
-| 1020 | Depth: Use Camera Near/Far | int | 1=on, 0=off | OFF for Nuke (raw world units) |
-| 1021 | Depth: Minimum Depth | float | 0.0 | |
-| 1022 | Depth: Maximum Depth | float | 10000.0 | |
-| 1024 | Depth: Env Rays to Black | int | 1=on | ON (sky=0, maskable in comp) |
+
+### Motion Vectors specific
+| ID | Name | Type | Default | Nuke | After Effects |
+|----|------|------|---------|------|--------------|
+| 1008 | Output Raw Vectors | int | 0 | **1 (ON)** | **0 (OFF)** |
+| 1009 | No Clamp | int | 0 | **1 (ON)** | **0 (OFF)** |
+| 1010 | Max Motion (pixels) | int | 8 | irrelevant | **64** (= RSMB MaxDisplace) |
+| 1011 | Image Output Min | float | 0.0 | irrelevant | 0.0 |
+| 1012 | Image Output Max | float | 1.0 | irrelevant | 1.0 |
+| 1013 | Filtering | int | 1 | **0 (OFF)** | **0 (OFF)** |
+
+### Depth specific
+| ID | Name | Type | Default | Nuke | After Effects |
+|----|------|------|---------|------|--------------|
+| 1004 | Filter Type | int | 0 (Full) | **3 (Center Sample)** | **3 (Center Sample)** |
+| 1019 | Depth Mode | int | 0 | **0 (Z raw)** | **2 (Z Normalized Inverted)** |
+| 1020 | Use Camera Near/Far | int | 1 | **0 (OFF)** | **1 (ON)** |
+| 1021 | Minimum Depth | float | 0.0 | 0.0 | 0.0 |
+| 1022 | Maximum Depth | float | 10000.0 | 10000.0 | 10000.0 |
+| 1024 | Env Rays to Black | int | 1 | 1 (ON) | 1 (ON) |
 
 ---
 
-## RS VideoPost — Caustics Parameters
-
-Located in RS Render Settings > Caustics tab.
+## RS VideoPost — Caustics Parameters (ID range 9013-9022)
 
 | ID | Name | Type | Values | Verified |
 |----|------|------|--------|----------|
-| 9013 | Enabled | int | 0=off, 1=on | Yes — toggled on/off, confirmed |
-| 9014 | Caustics Engine | int | 2=Brute Force | Read-only (always 2 in tests) |
+| 9013 | **Enabled** | int | 0=off, 1=on | Yes — toggled, confirmed |
+| 9014 | Caustics Engine | int | 2=Brute Force | Read from probe |
 | 9015 | Global Caustics | int | 0=off, 1=on | Read from probe |
 | 9016 | Reflection Caustics | int | 0=off, 1=on | Read from probe |
 | 9017 | Refraction Caustics | int | 0=off, 1=on | Read from probe |
 | 9018 | Light Casts Caustics | int | 0=off, 1=on | Read from probe |
 | 9019 | Disable Intensity Clamp | int | 0=off, 1=on | Read from probe |
-| 9020 | Brute Force Rays | int | 256 (default) | Read from probe |
+| 9020 | Brute Force Rays | int | 256 | Read from probe |
 | 9021 | Indirect Caustics | int | 0=off, 1=on | Read from probe |
 
 ---
 
-## AOV Type Constants
+## AOV Type Constants (`c4d.REDSHIFT_AOV_TYPE_*`)
 
-These exist as named constants in the `c4d` module (`c4d.REDSHIFT_AOV_TYPE_*`).
-
-| AOV | Constant Name | Numeric ID |
-|-----|---------------|------------|
+| AOV | Constant | ID |
+|-----|----------|-----|
+| Beauty | `REDSHIFT_AOV_TYPE_BEAUTY` or `REDSHIFT_AOV_TYPE_MAIN` | — |
 | Depth | `REDSHIFT_AOV_TYPE_DEPTH` | 1 |
 | Object-Space Position | `REDSHIFT_AOV_TYPE_OBJECT_SPACE_POSITION` | 2 |
 | Motion Vectors | `REDSHIFT_AOV_TYPE_MOTION_VECTORS` | 3 |
@@ -110,44 +152,44 @@ These exist as named constants in the `c4d` module (`c4d.REDSHIFT_AOV_TYPE_*`).
 | Reflections | `REDSHIFT_AOV_TYPE_REFLECTIONS` | 11 |
 | Normals | `REDSHIFT_AOV_TYPE_NORMALS` | 24 |
 | Cryptomatte | `REDSHIFT_AOV_TYPE_CRYPTOMATTE` | 42 |
-| GI | `REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION` | discovered via fallback probe |
-| Specular Lighting | `REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING` | exists, ID not logged |
-| Emission | `REDSHIFT_AOV_TYPE_EMISSION` | exists, ID not logged |
-| SSS | `REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER` | exists, ID not logged |
-| Refractions | `REDSHIFT_AOV_TYPE_REFRACTIONS` | exists, ID not logged |
-| Ambient Occlusion | `REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION` | exists, ID not logged |
-| Diffuse Filter | `REDSHIFT_AOV_TYPE_DIFFUSE_FILTER` | exists, ID not logged |
-| Reflection Filter | `REDSHIFT_AOV_TYPE_REFLECTION_FILTER` | exists, ID not logged |
-| Diffuse Lighting Raw | `REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW` | exists, ID not logged |
-| Volume Lighting | `REDSHIFT_AOV_TYPE_VOLUME_LIGHTING` | exists, ID not logged |
-| Volume Fog Tint | `REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT` | exists, ID not logged |
-| Volume Fog Emission | `REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION` | exists, ID not logged |
-| Shadows | `REDSHIFT_AOV_TYPE_SHADOWS` | exists, ID not logged |
-| Caustics | `REDSHIFT_AOV_TYPE_CAUSTICS` | exists, ID not logged |
-| Bump Normals | `REDSHIFT_AOV_TYPE_BUMP_NORMALS` | exists, ID not logged |
+| GI | `REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION` | — |
+| Specular Lighting | `REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING` | — |
+| Emission | `REDSHIFT_AOV_TYPE_EMISSION` | — |
+| SSS | `REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER` | — |
+| Refractions | `REDSHIFT_AOV_TYPE_REFRACTIONS` | — |
+| Ambient Occlusion | `REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION` | — |
+| Diffuse Filter | `REDSHIFT_AOV_TYPE_DIFFUSE_FILTER` | — |
+| Reflection Filter | `REDSHIFT_AOV_TYPE_REFLECTION_FILTER` | — |
+| Diffuse Lighting Raw | `REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW` | — |
+| Volume Lighting | `REDSHIFT_AOV_TYPE_VOLUME_LIGHTING` | — |
+| Volume Fog Tint | `REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT` | — |
+| Volume Fog Emission | `REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION` | — |
+| Shadows | `REDSHIFT_AOV_TYPE_SHADOWS` | — |
+| Caustics | `REDSHIFT_AOV_TYPE_CAUSTICS` | — |
+| Bump Normals | `REDSHIFT_AOV_TYPE_BUMP_NORMALS` | — |
 
-### Constants that DO NOT exist (tried and failed)
-- `REDSHIFT_AOV_DIRECT_ENABLED` — use raw ID 5001 instead
-- `REDSHIFT_AOV_TYPE_GI` — use `REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION`
-- `REDSHIFT_AOV_TYPE_SSS` — use `REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER`
+### Constants that DO NOT exist
+- `REDSHIFT_AOV_DIRECT_ENABLED` → use `REDSHIFT_AOV_FILE_ENABLED`
+- `REDSHIFT_AOV_TYPE_GI` → use `REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION`
+- `REDSHIFT_AOV_TYPE_SSS` → use `REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER`
 
 ---
 
 ## RS Object Plugin IDs (Scene Detection)
 
-| Object | Plugin ID | Used For |
+| Object | Plugin ID | Triggers |
 |--------|-----------|----------|
-| RS Environment | 1036757 | Global fog/atmosphere → triggers Volume AOVs |
-| RS Volume | 1038655 | Localized volumes (smoke/fire) → triggers Volume AOVs |
-| RS Light | 1036751 | Redshift light (+ additional types: 1036754, 1038653, 1036950, 1034355, 1036753) |
-| RS Camera | 1057516 | Redshift camera |
-| RS Texture Sampler (legacy shader) | 1036227 | Legacy GV texture node |
-| Alembic Generator | 1028083 | Alembic file reference |
-| Alembic Tag | 1028081 | Alembic tag on objects |
+| RS Environment | 1036757 | Volume AOVs (global fog) |
+| RS Volume | 1038655 | Volume AOVs (smoke/fire) |
+| RS Light | 1036751 | + types: 1036754, 1038653, 1036950, 1034355, 1036753 |
+| RS Camera | 1057516 | |
+| RS Texture Sampler (legacy) | 1036227 | |
+| Alembic Generator | 1028083 | Asset path checks |
+| Alembic Tag | 1028081 | Asset path checks |
 
 ---
 
-## RS Node Material
+## RS Node Material Access
 
 | Item | Value |
 |------|-------|
@@ -156,39 +198,58 @@ These exist as named constants in the `c4d` module (`c4d.REDSHIFT_AOV_TYPE_*`).
 | Graph access | `mat.GetNodeMaterialReference().GetGraph(RS_NODESPACE)` |
 | Root node | `graph.GetViewRoot()` (NOT `GetRoot()` — deprecated since 2025) |
 | Port values | `port.GetPortValue()` (NOT `GetDefaultValue()` — deprecated since 2024.4) |
-| Texture path | Stored in nested sub-ports of TextureSampler nodes. Recursive scan required. |
+| Texture paths | Nested sub-ports of TextureSampler nodes. Recursive scan required. |
 | maxon.Url → path | `val.GetSystemPath()` or `val.ToString()` |
 
 ---
 
 ## YS Guardian AOV Configuration
 
-### Per-AOV Settings Applied by Plugin
+### Global Settings (applied to RS VideoPost)
+| Setting | Constant | Value |
+|---------|----------|-------|
+| AOV Mode | `REDSHIFT_RENDERER_AOV_GLOBAL_MODE` | `ENABLE` (1) |
+| Multi-Part EXR | `REDSHIFT_RENDERER_AOV_MULTIPART` | True |
 
-| Setting | Beauty AOVs | Utility AOVs | Source |
-|---------|-------------|--------------|--------|
-| Direct Output | ON (5001=1) | ON (5001=1) | All AOVs use Direct |
-| Multi-Pass | OFF (5000=0) | OFF (5000=0) | Disabled for all |
-| Data Type | RGBA (6001=1) | RGB (6001=0) | Beauty needs alpha for transparency |
-| Format + Depth | EXR 16-bit (6003=3) | EXR 32-bit (6003=4) | Utility needs float precision |
-| Compression | Default (6006=95) | Default | Not modified |
-| DWA | 45.0 (6007=45.0) | 45.0 | Not modified (perceptually lossless) |
-| Storage | Scanline (6005=0) | Scanline | Not modified |
+### Per-AOV Settings
 
-### Beauty AOVs (RGBA, EXR 16-bit half)
-Diffuse Lighting, GI, Specular Lighting, Reflections, SSS, Refractions,
-Emission, Caustics*, Volume Lighting*, Volume Fog Tint*, Volume Fog Emission*,
-Shadows, Diffuse Filter, Reflection Filter, Diffuse Lighting Raw,
-Refractions Raw, Ambient Occlusion
+| Setting | Beauty AOVs | Utility AOVs |
+|---------|-------------|--------------|
+| Direct Output | ON | ON |
+| Multi-Pass | OFF | OFF |
+| Data Type | RGBA | RGB |
+| Bit Depth | EXR Half Float (16-bit) | EXR Float (32-bit)* |
+| Compression | DWAB (45) | PIZ |
 
-### Utility AOVs (RGB, EXR 32-bit float)
-Depth, Motion Vectors, Cryptomatte, World Position
+*Exception: Normals, Bump Normals → 16-bit half float
 
-### Utility AOVs (RGB, EXR 16-bit half)
-Normals, Bump Normals
+### Compositor-Specific Configuration
 
-*Conditional: Caustics added only when Caustics Enabled (9013=1).
-Volume AOVs added only when RS Environment (1036757) or RS Volume (1038655) in scene.
+**Nuke:**
+| AOV | Settings |
+|-----|----------|
+| Depth | Mode=Z (raw world units), Filter=Center Sample, Camera Near/Far=OFF |
+| Motion Vectors | Raw Vectors=ON, No Clamp=ON, Filtering=OFF |
+
+**After Effects (Frischluft + RSMB Pro):**
+| AOV | Settings |
+|-----|----------|
+| Depth | Mode=Z Normalized Inverted (white=near), Filter=Center Sample, Camera Near/Far=ON |
+| Motion Vectors | Raw Vectors=OFF (normalized 0-1), No Clamp=OFF, Max Motion=64px, Filtering=OFF |
+
+### AOV Tiers
+
+**Essentials (11 AOVs):**
+Beauty, Diffuse Lighting, GI, Specular Lighting, Reflections, SSS,
+Refractions, Emission, Depth, Motion Vectors, Cryptomatte
+
+**Production (17+ AOVs = Essentials + 6):**
+\+ Diffuse Filter, World Position, Normals, Ambient Occlusion,
+Reflection Filter, Refractions Raw
+
+**Conditional AOVs (auto-detected):**
+- **Caustics** — added when RS Caustics Enabled (VP param 9013=1)
+- **Volume Lighting/Fog Tint/Fog Emission** — added when RS Environment or RS Volume objects exist in scene
 
 ### Beauty Rebuild Equation
 ```
@@ -204,9 +265,9 @@ Beauty = (Diffuse + GI + Specular + Reflections + SSS + Refractions
 To find unknown parameter IDs:
 
 1. Create/select an AOV in the AOV Manager
-2. Note the current value of the setting you want to control
-3. Add probe code to dump a range of param IDs:
+2. Add probe code:
 ```python
+# For RSAOV params:
 for pid in range(START, END):
     try:
         val = aov.GetParameter(pid)
@@ -214,12 +275,31 @@ for pid in range(START, END):
             print(f"id={pid} val={val} type={type(val).__name__}")
     except:
         pass
-```
-4. Change the setting manually in the AOV Manager UI
-5. Run the probe again and compare — the changed ID is your target
 
-Known ID ranges:
-- 1000-1009: AOV options (type, name, denoise, color processing)
-- 5000-5001: Output enables (Multi-Pass, Direct)
-- 6000-6009: Direct Output config (path, data type, format, compression)
-- 9010-9022: RS VideoPost Caustics tab
+# For VideoPost params:
+for pid in range(START, END):
+    try:
+        val = vprs[pid]
+        if val is not None:
+            print(f"id={pid} val={val} type={type(val).__name__}")
+    except:
+        pass
+
+# Find named constants:
+for attr in dir(c4d):
+    if "REDSHIFT" in attr and "KEYWORD" in attr:
+        print(f"{attr} = {getattr(c4d, attr)}")
+```
+3. Note current values, change setting manually in UI, probe again
+4. The changed ID is your target
+
+**Known ID ranges:**
+- 1000-1029: Per-AOV options (type, name, depth mode, MV settings)
+- 3001-3010: RS VideoPost global AOV settings
+- 5000-5001: Per-AOV output enables (Multi-Pass, Direct)
+- 6000-6008: Per-AOV Direct Output config
+- 9013-9022: RS VideoPost Caustics tab
+
+**Pro tip**: Always try `dir(c4d)` with a keyword filter first — many constants
+exist but aren't documented. Only fall back to brute-force probing when no
+named constant exists.
