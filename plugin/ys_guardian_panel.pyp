@@ -1958,35 +1958,8 @@ class YSPanel(gui.GeDialog):
         self.GroupEnd()
         self.GroupEnd()
 
-        # ── Render Preset ──
-        self.GroupBegin(19, c4d.BFH_SCALEFIT, 1, 0, "Render Preset")
-        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
-        self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(20, c4d.BFH_SCALEFIT, 3, 0)
-        self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
-        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force")
-        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force All")
-        self.GroupEnd()
-        self.GroupEnd()
-
-        # ── RS AOVs ──
-        self.GroupBegin(79, c4d.BFH_SCALEFIT, 1, 0, "Redshift AOVs")
-        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
-        self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(81, c4d.BFH_SCALEFIT, 4, 0)
-        self.AddStaticText(0, c4d.BFH_LEFT, 0, 0, "Comp", 0)
-        self.AddComboBox(G.COMP_TARGET, c4d.BFH_LEFT, 100, 0)
-        self.AddCheckbox(G.CHK_MULTIPART, c4d.BFH_LEFT, 0, 0, "Multi-Part")
-        self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
-        self.GroupEnd()
-        self.GroupBegin(80, c4d.BFH_SCALEFIT, 2, 0)
-        self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
-        self.AddButton(G.BTN_FORCE_PRODUCTION, c4d.BFH_SCALEFIT, 0, 0, "Production")
-        self.GroupEnd()
-        self.GroupEnd()
-
-        # ── Quick Actions ──
-        self.GroupBegin(49, c4d.BFH_SCALEFIT, 1, 0, "Quick Actions")
+        # ── Scene Tools ──
+        self.GroupBegin(49, c4d.BFH_SCALEFIT, 1, 0, "Scene Tools")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
         self.GroupBegin(50, c4d.BFH_SCALEFIT, 4, 0)
@@ -2003,12 +1976,40 @@ class YSPanel(gui.GeDialog):
         self.GroupEnd()
         self.GroupEnd()
 
+        # ── Render ──
+        self.GroupBegin(19, c4d.BFH_SCALEFIT, 1, 0, "Render")
+        self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
+        self.GroupBorderSpace(4, 2, 4, 2)
+
+        # Preset row
+        self.GroupBegin(20, c4d.BFH_SCALEFIT, 3, 0)
+        self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
+        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force")
+        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force All")
+        self.GroupEnd()
+
+        # AOVs config row
+        self.GroupBegin(81, c4d.BFH_SCALEFIT, 4, 0)
+        self.AddStaticText(0, c4d.BFH_LEFT, 0, 0, "Comp", 0)
+        self.AddComboBox(G.COMP_TARGET, c4d.BFH_LEFT, 100, 0)
+        self.AddCheckbox(G.CHK_MULTIPART, c4d.BFH_LEFT, 0, 0, "Multi-Part")
+        self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
+        self.GroupEnd()
+
+        # AOVs tier buttons
+        self.GroupBegin(80, c4d.BFH_SCALEFIT, 2, 0)
+        self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
+        self.AddButton(G.BTN_FORCE_PRODUCTION, c4d.BFH_SCALEFIT, 0, 0, "Production")
+        self.GroupEnd()
+
+        self.GroupEnd()
+
         # ── Output ──
         self.GroupBegin(59, c4d.BFH_SCALEFIT, 1, 0, "Output")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
 
-        # Snapshot dir display + set button
+        # Snapshot dir
         self.GroupBegin(61, c4d.BFH_SCALEFIT, 2, 0)
         self.AddStaticText(G.LABEL_SNAPSHOT_DIR, c4d.BFH_SCALEFIT, 0, 0, "", 0)
         self.AddButton(G.BTN_SET_SNAPSHOT_DIR, c4d.BFH_RIGHT, 30, 0, "...")
@@ -2021,12 +2022,12 @@ class YSPanel(gui.GeDialog):
         self.AddButton(G.BTN_EXPORT_QC, c4d.BFH_SCALEFIT, 0, 0, "Export QC")
         self.GroupEnd()
 
-        self.GroupEnd()
-
-        # ── Footer ──
+        # Footer
         self.GroupBegin(70, c4d.BFH_SCALEFIT, 2, 0)
         self.AddButton(G.BTN_GITHUB, c4d.BFH_SCALEFIT, 0, 0, "GitHub")
         self.AddButton(G.BTN_BUG_REPORT, c4d.BFH_SCALEFIT, 0, 0, "Report Bug")
+        self.GroupEnd()
+
         self.GroupEnd()
 
         self.GroupEnd()  # Main container
