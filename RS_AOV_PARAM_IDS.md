@@ -29,7 +29,7 @@ The primary output method for production. Each AOV has its own Direct Output con
 | ID | Value | Notes |
 |----|-------|-------|
 | 6002 | 0 | Always 0 across all AOV types. Unknown purpose. |
-| 6004 | 1 | Always 1. Does NOT control bit depth (tested: set to 2, reads back as 1). |
+| 6004 | Compression | 1=Default, 201=ZIP, 202=ZIPS, 203=PIZ, 206=DWAA, 207=DWAB. Was misidentified as bit depth initially. |
 | 6009 | None | Empty / not set |
 
 ---
