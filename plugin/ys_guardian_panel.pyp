@@ -903,21 +903,43 @@ def get_scene_stats(doc):
     return stats
 
 # ---------------- RS AOV management ----------------
-# Standard AOVs expected in production renders
-STANDARD_AOVS = {
-    "Beauty",
-    "Depth",
-    "Cryptomatte",
-    "World Position",
-    "Normals",
-    "Motion Vectors",
-    "Diffuse Lighting",
-    "Reflections",
-    "Object-Space Position",
+# AOV definitions: (const_candidates, bit_depth)
+# bit_depth: 16 = half-float, 32 = full float
+_AOV_DEFS = {
+    "Diffuse Lighting":   (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING"], 16),
+    "GI":                 (["REDSHIFT_AOV_TYPE_GI"], 16),
+    "Specular Lighting":  (["REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING"], 16),
+    "Reflections":        (["REDSHIFT_AOV_TYPE_REFLECTIONS"], 16),
+    "Emission":           (["REDSHIFT_AOV_TYPE_EMISSION"], 16),
+    "Depth":              (["REDSHIFT_AOV_TYPE_DEPTH", "REDSHIFT_AOV_TYPE_Z_DEPTH"], 32),
+    "Motion Vectors":     (["REDSHIFT_AOV_TYPE_MOTION_VECTORS"], 32),
+    "Cryptomatte":        (["REDSHIFT_AOV_TYPE_CRYPTOMATTE"], 32),
+    "SSS":                (["REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER", "REDSHIFT_AOV_TYPE_SSS"], 16),
+    "Refractions":        (["REDSHIFT_AOV_TYPE_REFRACTIONS"], 16),
+    "Diffuse Filter":     (["REDSHIFT_AOV_TYPE_DIFFUSE_FILTER"], 16),
+    "World Position":     (["REDSHIFT_AOV_TYPE_WORLD_POSITION"], 32),
+    "Normals":            (["REDSHIFT_AOV_TYPE_NORMALS"], 16),
+    "Ambient Occlusion":  (["REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION"], 16),
+    "Volume Lighting":    (["REDSHIFT_AOV_TYPE_VOLUME_LIGHTING"], 16),
+    "Shadows":            (["REDSHIFT_AOV_TYPE_SHADOWS"], 16),
+    "Caustics":           (["REDSHIFT_AOV_TYPE_CAUSTICS"], 16),
+    "Bump Normals":       (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16),
+    "Reflection Filter":  (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER"], 16),
+    "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
 }
 
+# Tier definitions — names must match _AOV_DEFS keys
+AOV_TIER_ESSENTIALS = [
+    "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
+    "Emission", "Depth", "Motion Vectors", "Cryptomatte",
+]
+
+AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
+    "SSS", "Refractions", "Diffuse Filter", "World Position",
+    "Normals", "Ambient Occlusion",
+]
+
 def _get_rs_videopost(doc):
-    """Get Redshift VideoPost from active render data"""
     if not REDSHIFT_AVAILABLE:
         return None
     try:
@@ -926,16 +948,27 @@ def _get_rs_videopost(doc):
     except Exception:
         return None
 
+def _resolve_aov_type(name):
+    """Resolve AOV name to c4d constant value"""
+    aov_def = _AOV_DEFS.get(name)
+    if not aov_def:
+        return None
+    candidates, _ = aov_def
+    for const_name in candidates:
+        val = getattr(c4d, const_name, None)
+        if val is not None:
+            return val
+    return None
+
 def get_rs_aovs(doc):
-    """Get list of current RS AOVs as dicts with name, type, enabled"""
+    """Get list of current RS AOVs"""
     vprs = _get_rs_videopost(doc)
     if not vprs:
-        return None  # None means RS not available, [] means no AOVs
+        return None
 
     aovs = []
     try:
-        rs_aovs = redshift.RendererGetAOVs(vprs)
-        for aov in rs_aovs:
+        for aov in redshift.RendererGetAOVs(vprs):
             try:
                 aovs.append({
                     "name": aov.GetParameter(c4d.REDSHIFT_AOV_NAME) or "",
@@ -946,49 +979,30 @@ def get_rs_aovs(doc):
                 pass
     except Exception as e:
         safe_print(f"Error reading RS AOVs: {e}")
-
     return aovs
 
-def check_rs_aovs(doc):
-    """Check if standard AOVs are configured"""
-    cached = check_cache.get(doc, "aovs")
-    if cached is not None:
-        return cached
-
-    result = {"available": REDSHIFT_AVAILABLE, "aovs": [], "missing": []}
+def check_rs_aovs(doc, tier=None):
+    """Check AOVs against a tier. tier=None uses Essentials."""
+    tier_list = tier or AOV_TIER_ESSENTIALS
+    result = {"available": REDSHIFT_AVAILABLE, "aovs": [], "missing": [], "tier": tier_list}
 
     aovs = get_rs_aovs(doc)
     if aovs is None:
-        check_cache.set(doc, "aovs", result)
         return result
 
     result["aovs"] = aovs
     active_names = {a["name"] for a in aovs if a.get("enabled", True)}
-    result["missing"] = [name for name in STANDARD_AOVS if name not in active_names]
-
-    check_cache.set(doc, "aovs", result)
+    result["missing"] = [name for name in tier_list if name not in active_names]
     return result
 
-def force_standard_aovs(doc):
-    """Add missing standard AOVs to the RS render settings"""
+def force_aov_tier(doc, tier_list):
+    """Add missing AOVs from a tier to RS render settings, with proper bit depth"""
     if not REDSHIFT_AVAILABLE:
         return 0, "Redshift module not available"
 
     vprs = _get_rs_videopost(doc)
     if not vprs:
-        return 0, "Redshift VideoPost not found in active render settings"
-
-    # AOV type mapping (RS constants)
-    AOV_TYPES = {
-        "Depth": c4d.REDSHIFT_AOV_TYPE_DEPTH,
-        "Cryptomatte": c4d.REDSHIFT_AOV_TYPE_CRYPTOMATTE,
-        "World Position": c4d.REDSHIFT_AOV_TYPE_WORLD_POSITION,
-        "Normals": c4d.REDSHIFT_AOV_TYPE_NORMALS,
-        "Motion Vectors": c4d.REDSHIFT_AOV_TYPE_MOTION_VECTORS,
-        "Diffuse Lighting": c4d.REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING,
-        "Reflections": c4d.REDSHIFT_AOV_TYPE_REFLECTIONS,
-        "Object-Space Position": c4d.REDSHIFT_AOV_TYPE_OBJECT_SPACE_POSITION,
-    }
+        return 0, "Redshift VideoPost not found"
 
     try:
         existing_aovs = redshift.RendererGetAOVs(vprs)
@@ -1002,17 +1016,35 @@ def force_standard_aovs(doc):
         added = 0
         new_aovs = list(existing_aovs)
 
-        for name, aov_type in AOV_TYPES.items():
-            if name not in existing_names:
+        for name in tier_list:
+            if name in existing_names:
+                continue
+
+            aov_type = _resolve_aov_type(name)
+            if aov_type is None:
+                safe_print(f"  Skipped AOV '{name}': constant not found")
+                continue
+
+            _, bit_depth = _AOV_DEFS[name]
+
+            try:
+                new_aov = redshift.RSAOV()
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_TYPE, aov_type)
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_NAME, name)
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_ENABLED, True)
+
+                # Set bit depth: 0=8bit, 1=16bit half, 2=32bit float
+                depth_val = 2 if bit_depth == 32 else 1
                 try:
-                    new_aov = redshift.RSAOV()
-                    new_aov.SetParameter(c4d.REDSHIFT_AOV_TYPE, aov_type)
-                    new_aov.SetParameter(c4d.REDSHIFT_AOV_NAME, name)
-                    new_aov.SetParameter(c4d.REDSHIFT_AOV_ENABLED, True)
-                    new_aovs.append(new_aov)
-                    added += 1
-                except Exception as e:
-                    safe_print(f"Could not add AOV '{name}': {e}")
+                    new_aov.SetParameter(c4d.REDSHIFT_AOV_BITS_PER_CHANNEL, depth_val)
+                except Exception:
+                    pass
+
+                new_aovs.append(new_aov)
+                added += 1
+                safe_print(f"  Added AOV: {name} ({bit_depth}-bit)")
+            except Exception as e:
+                safe_print(f"  Failed: '{name}': {e}")
 
         if added > 0:
             redshift.RendererSetAOVs(vprs, new_aovs)
@@ -1022,7 +1054,8 @@ def force_standard_aovs(doc):
         return added, None
 
     except Exception as e:
-        return 0, f"Error adding AOVs: {e}"
+        safe_print(f"Error forcing AOVs: {e}")
+        return 0, f"Error: {e}"
 
 # ---------------- auto-fix functions ----------------
 def fix_lights(doc, lights_bad):
@@ -1521,7 +1554,8 @@ class G:
     BTN_OPEN_FOLDER = 1010
     BTN_SNAPSHOT = 1009
     BTN_INFO_AOVS = 1155
-    BTN_FORCE_AOVS = 1156
+    BTN_FORCE_ESSENTIALS = 1156
+    BTN_FORCE_PRODUCTION = 1157
     BTN_SET_SNAPSHOT_DIR = 1160
     LABEL_SNAPSHOT_DIR = 1161
     BTN_GITHUB = 1306
@@ -1814,9 +1848,10 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(79, c4d.BFH_SCALEFIT, 1, 0, "Redshift AOVs")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(80, c4d.BFH_SCALEFIT, 2, 0)
+        self.GroupBegin(80, c4d.BFH_SCALEFIT, 3, 0)
         self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
-        self.AddButton(G.BTN_FORCE_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Force Standard")
+        self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
+        self.AddButton(G.BTN_FORCE_PRODUCTION, c4d.BFH_SCALEFIT, 0, 0, "Production")
         self.GroupEnd()
         self.GroupEnd()
 
@@ -1960,40 +1995,43 @@ class YSPanel(gui.GeDialog):
             self._take_renderview_snapshot()
 
         elif cid == G.BTN_INFO_AOVS:
-            result = check_rs_aovs(doc)
+            result = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
             if not result["available"]:
                 c4d.gui.MessageDialog("Redshift module not available.\n\nMake sure Redshift is installed and active.")
             elif not result["aovs"]:
-                c4d.gui.MessageDialog("No AOVs configured.\n\nClick 'Force Standard' to add production AOVs.")
+                c4d.gui.MessageDialog("No AOVs configured.\n\nUse 'Essentials' or 'Production' to add passes.")
             else:
                 msg = f"REDSHIFT AOVs: {len(result['aovs'])}\n\n"
+                msg += "ACTIVE:\n"
                 for aov in result["aovs"]:
                     status = "ON" if aov.get("enabled") else "OFF"
                     msg += f"  [{status}] {aov['name']}\n"
-                if result["missing"]:
-                    msg += f"\nMISSING ({len(result['missing'])}):\n"
-                    for name in result["missing"]:
-                        msg += f"  - {name}\n"
-                else:
-                    msg += "\nAll standard AOVs present."
+
+                # Check against both tiers
+                ess = check_rs_aovs(doc, AOV_TIER_ESSENTIALS)
+                prod = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
+
+                if ess["missing"]:
+                    msg += f"\nMISSING ESSENTIALS ({len(ess['missing'])}):\n"
+                    for n in ess["missing"]:
+                        msg += f"  ! {n}\n"
+
+                prod_only = [n for n in prod["missing"] if n not in ess["missing"]]
+                if prod_only:
+                    msg += f"\nMISSING PRODUCTION ({len(prod_only)}):\n"
+                    for n in prod_only:
+                        msg += f"  - {n}\n"
+
+                if not ess["missing"] and not prod_only:
+                    msg += "\nAll production AOVs present."
+
                 c4d.gui.MessageDialog(msg)
 
-        elif cid == G.BTN_FORCE_AOVS:
-            if not REDSHIFT_AVAILABLE:
-                c4d.gui.MessageDialog("Redshift module not available.")
-            else:
-                result = check_rs_aovs(doc)
-                if not result["missing"]:
-                    c4d.gui.MessageDialog("All standard AOVs already configured.")
-                else:
-                    missing_list = "\n".join(f"  - {n}" for n in result["missing"])
-                    if c4d.gui.QuestionDialog(f"Add {len(result['missing'])} missing AOVs?\n\n{missing_list}"):
-                        added, error = force_standard_aovs(doc)
-                        if error:
-                            c4d.gui.MessageDialog(f"Error: {error}")
-                        else:
-                            safe_print(f"Added {added} standard AOVs")
-                            c4d.gui.MessageDialog(f"Added {added} standard AOV(s).")
+        elif cid == G.BTN_FORCE_ESSENTIALS:
+            self._force_aov_tier(doc, AOV_TIER_ESSENTIALS, "Essentials")
+
+        elif cid == G.BTN_FORCE_PRODUCTION:
+            self._force_aov_tier(doc, AOV_TIER_PRODUCTION, "Production")
 
         elif cid == G.BTN_SET_SNAPSHOT_DIR:
             new_dir = c4d.storage.LoadDialog(title="Select RS Snapshot Folder", flags=c4d.FILESELECT_DIRECTORY)
@@ -2196,6 +2234,23 @@ class YSPanel(gui.GeDialog):
                 c4d.gui.MessageDialog(f"QC Report saved!\n\n{save_path}")
 
         return True
+
+    def _force_aov_tier(self, doc, tier_list, tier_name):
+        if not REDSHIFT_AVAILABLE:
+            c4d.gui.MessageDialog("Redshift module not available.")
+            return
+        result = check_rs_aovs(doc, tier_list)
+        if not result["missing"]:
+            c4d.gui.MessageDialog(f"All {tier_name} AOVs already configured.")
+            return
+        missing_list = "\n".join(f"  - {n}" for n in result["missing"])
+        if c4d.gui.QuestionDialog(f"Add {len(result['missing'])} {tier_name} AOVs?\n\n{missing_list}"):
+            added, error = force_aov_tier(doc, tier_list)
+            if error:
+                c4d.gui.MessageDialog(f"Error: {error}")
+            else:
+                safe_print(f"Added {added} {tier_name} AOVs")
+                c4d.gui.MessageDialog(f"Added {added} {tier_name} AOV(s).\n\n32-bit float set for: Depth, Motion Vectors, World Position")
 
     def _open_artist_folder(self):
         """Open the artist's output folder"""
