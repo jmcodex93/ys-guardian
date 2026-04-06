@@ -944,7 +944,7 @@ AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
     "Diffuse Filter", "World Position", "Normals", "Ambient Occlusion",
     "Volume Lighting", "Volume Fog Tint", "Volume Fog Emission",
     "Diffuse Lighting Raw", "Reflection Filter",
-    "Shadows", "Bump Normals", "Caustics",
+    "Shadows", "Bump Normals",
 ]
 
 def _get_rs_videopost(doc):
