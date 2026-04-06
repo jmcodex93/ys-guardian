@@ -1067,15 +1067,19 @@ def force_aov_tier(doc, tier_list):
     if not vprs:
         return 0, "Redshift VideoPost not found"
 
-    # Enable AOV system + Multi-Part EXR with global settings
+    # Enable AOV system + configure output mode
+    use_multipart = bool(int(GlobalSettings.get('aov_multipart', 1)))
     try:
         vprs[c4d.REDSHIFT_RENDERER_AOV_GLOBAL_MODE] = c4d.REDSHIFT_RENDERER_AOV_GLOBAL_MODE_ENABLE
-        vprs[c4d.REDSHIFT_RENDERER_AOV_MULTIPART] = True
-        # Multi-Part forces uniform settings — use 32-bit float for Depth/MV precision
-        vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH] = c4d.REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH_FLOAT32
-        vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_COMPRESSION] = c4d.REDSHIFT_RENDERER_AOV_FILE_COMPRESSION_EXR_DWAB
-        vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_EXR_DWA_COMPRESSION] = 45.0
-        safe_print("  AOV Mode: Enabled, Multi-Part EXR: ON, 32-bit Float, DWAB 45")
+        vprs[c4d.REDSHIFT_RENDERER_AOV_MULTIPART] = use_multipart
+        if use_multipart:
+            # Multi-Part forces uniform settings — 32-bit for Depth/MV precision
+            vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH] = c4d.REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH_FLOAT32
+            vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_COMPRESSION] = c4d.REDSHIFT_RENDERER_AOV_FILE_COMPRESSION_EXR_DWAB
+            vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_EXR_DWA_COMPRESSION] = 45.0
+            safe_print("  Multi-Part EXR: ON (32-bit Float, DWAB 45)")
+        else:
+            safe_print("  Multi-Part EXR: OFF (per-AOV Direct Output)")
     except Exception as e:
         safe_print(f"  Warning: Could not set AOV global settings: {e}")
 
@@ -1670,6 +1674,7 @@ class G:
     BTN_OPEN_FOLDER = 1010
     BTN_SNAPSHOT = 1009
     COMP_TARGET = 1154
+    CHK_MULTIPART = 1153
     BTN_INFO_AOVS = 1155
     BTN_FORCE_ESSENTIALS = 1156
     BTN_FORCE_PRODUCTION = 1157
@@ -1971,8 +1976,8 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(81, c4d.BFH_SCALEFIT, 4, 0)
         self.AddStaticText(0, c4d.BFH_LEFT, 0, 0, "Comp", 0)
         self.AddComboBox(G.COMP_TARGET, c4d.BFH_LEFT, 100, 0)
+        self.AddCheckbox(G.CHK_MULTIPART, c4d.BFH_LEFT, 0, 0, "Multi-Part")
         self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
-        self.AddStaticText(0, c4d.BFH_SCALEFIT, 0, 0, "", 0)
         self.GroupEnd()
         self.GroupBegin(80, c4d.BFH_SCALEFIT, 2, 0)
         self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
@@ -2051,6 +2056,8 @@ class YSPanel(gui.GeDialog):
         self.AddChild(G.COMP_TARGET, 1, "After Effects")
         saved_target = GlobalSettings.get('comp_target', 0)
         self.SetInt32(G.COMP_TARGET, int(saved_target))
+        saved_multipart = GlobalSettings.get('aov_multipart', 1)
+        self.SetBool(G.CHK_MULTIPART, bool(int(saved_multipart)))
 
         # Show snapshot directory
         self._update_snapshot_dir_label()
@@ -2127,6 +2134,9 @@ class YSPanel(gui.GeDialog):
 
         elif cid == G.COMP_TARGET:
             GlobalSettings.set('comp_target', self.GetInt32(G.COMP_TARGET))
+
+        elif cid == G.CHK_MULTIPART:
+            GlobalSettings.set('aov_multipart', 1 if self.GetBool(G.CHK_MULTIPART) else 0)
 
         elif cid == G.BTN_INFO_AOVS:
             result = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
@@ -2387,8 +2397,12 @@ class YSPanel(gui.GeDialog):
                 c4d.gui.MessageDialog(f"Error: {error}")
             else:
                 target_name = "Nuke" if int(GlobalSettings.get('comp_target', 0)) == 0 else "After Effects"
+                multipart = bool(int(GlobalSettings.get('aov_multipart', 1)))
+                output_mode = "Multi-Part EXR (32-bit, DWAB)" if multipart else "Direct Output (per-AOV settings)"
                 safe_print(f"Added {added} {tier_name} AOVs for {target_name}")
-                msg = f"Added {added} {tier_name} AOV(s) for {target_name}.\n\n"
+                msg = f"Added {added} {tier_name} AOV(s)\n\n"
+                msg += f"Compositor: {target_name}\n"
+                msg += f"Output: {output_mode}\n\n"
                 if target_name == "Nuke":
                     msg += "Depth: Z raw, Center Sample\nMotion Vectors: Raw, No Clamp, No Filter"
                 else:
