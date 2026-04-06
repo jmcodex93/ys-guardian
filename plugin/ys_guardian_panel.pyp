@@ -1254,41 +1254,31 @@ def _find_latest_exr():
 
 def _convert_exr_to_png(exr_path, png_path):
     """Convert EXR to PNG: ACEScg -> sRGB with ACES tone mapping"""
-    # Load EXR as MultipassBitmap to preserve HDR float values
-    mpb = c4d.bitmaps.MultipassBitmap(0, 0, c4d.COLORMODE_RGBf)
-    result = mpb.InitWith(exr_path)
+    src = c4d.bitmaps.BaseBitmap()
+    result = src.InitWith(exr_path)
     if result[0] != c4d.IMAGERESULT_OK:
-        # Fallback to BaseBitmap
-        mpb = c4d.bitmaps.BaseBitmap()
-        result = mpb.InitWith(exr_path)
-        if result[0] != c4d.IMAGERESULT_OK:
-            return False, f"Failed to load EXR: {exr_path}"
+        return False, f"Failed to load EXR: {exr_path}"
 
-    w = mpb.GetBw()
-    h = mpb.GetBh()
-    depth = mpb.GetBt()
+    w = src.GetBw()
+    h = src.GetBh()
+    depth = src.GetBt()
     safe_print(f"EXR loaded: {w}x{h}, {depth}-bit")
 
     # Create output bitmap at same resolution
     dst = c4d.bitmaps.BaseBitmap()
     dst.Init(w, h, 24)
 
-    # Process each pixel with full ACES pipeline
+    # GetPixelDirect returns c4d.Vector with float values
+    # For EXR files C4D preserves HDR range via GetPixelDirect
     for y in range(h):
         for x in range(w):
-            # Read HDR float values
-            px = mpb.GetPixelDirect(x, y)
-            r, g, b = px.x, px.y, px.z
-
-            # Full pipeline: ACEScg -> linear sRGB -> ACES tonemap -> sRGB
-            ri, gi, bi = _process_pixel_aces(r, g, b)
+            px = src.GetPixelDirect(x, y)
+            ri, gi, bi = _process_pixel_aces(px.x, px.y, px.z)
             dst.SetPixel(x, y, ri, gi, bi)
 
-        # Progress feedback every 100 lines
-        if y > 0 and y % 100 == 0:
+        if y > 0 and y % 200 == 0:
             safe_print(f"  Converting... {int(y/h*100)}%")
 
-    # Save as PNG
     save_result = dst.Save(png_path, c4d.FILTER_PNG)
     if save_result != c4d.IMAGERESULT_OK:
         return False, f"Failed to save PNG: {png_path}"
