@@ -53,7 +53,7 @@ C4D-integrated output method. Less control than Direct Output.
 | `REDSHIFT_AOV_NAME` | Display Name | str | User-editable name | Yes |
 | `REDSHIFT_AOV_ENABLED` | Master Enable | bool | True/False | Yes |
 
-### Additional AOV option params (ID range 1000-1009)
+### AOV Option Params (ID range 1000-1029)
 | ID | Name | Type | Default | Notes |
 |----|------|------|---------|-------|
 | 1000 | (AOV Type numeric) | int | varies | Mirrors REDSHIFT_AOV_TYPE |
@@ -64,8 +64,17 @@ C4D-integrated output method. Less control than Direct Output.
 | 1005 | (unknown) | Vector | (1,1,1) | |
 | 1006 | Apply Color Processing | int | 1=on | Should be 0 for compositing |
 | 1007 | (unknown) | int | 0 | |
-| 1008 | (unknown) | int | 0 | |
-| 1009 | (unknown) | int | 0 | |
+| 1008 | MV: Output Raw Vectors | int | 0=off, 1=on | ON for Nuke (raw pixel displacement) |
+| 1009 | MV: No Clamp | int | 0=off, 1=on | ON for Nuke (preserve full motion range) |
+| 1010 | MV: Max Motion (pixels) | int | 8 | Irrelevant when No Clamp=ON |
+| 1011 | MV: Image Output Min | float | 0.0 | Irrelevant when Raw Vectors=ON |
+| 1012 | MV: Image Output Max | float | 1.0 | Irrelevant when Raw Vectors=ON |
+| 1013 | MV: Filtering | int | 1=on, 0=off | OFF for Nuke (prevents edge smearing) |
+| 1019 | Depth: Depth Mode | int | 0=Z, 1=Z Normalized, 2=Z Normalized Inverted | 0 for Nuke (planar Z) |
+| 1020 | Depth: Use Camera Near/Far | int | 1=on, 0=off | OFF for Nuke (raw world units) |
+| 1021 | Depth: Minimum Depth | float | 0.0 | |
+| 1022 | Depth: Maximum Depth | float | 10000.0 | |
+| 1024 | Depth: Env Rays to Black | int | 1=on | ON (sky=0, maskable in comp) |
 
 ---
 

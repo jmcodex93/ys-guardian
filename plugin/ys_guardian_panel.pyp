@@ -1109,6 +1109,15 @@ def force_aov_tier(doc, tier_list):
                 if compression in ("dwaa", "dwab"):
                     new_aov.SetParameter(6007, 45.0)  # DWA level
 
+                # Per-AOV type options for Nuke compositing
+                if name == "Depth":
+                    new_aov.SetParameter(1020, 0)  # Use Camera Near/Far = OFF (raw world units)
+                    new_aov.SetParameter(1019, 0)  # Depth Mode = Z (planar, not normalized)
+                elif name == "Motion Vectors":
+                    new_aov.SetParameter(1008, 1)  # Output Raw Vectors = ON
+                    new_aov.SetParameter(1009, 1)  # No Clamp = ON
+                    new_aov.SetParameter(1013, 0)  # Filtering = OFF
+
                 new_aovs.append(new_aov)
                 added += 1
                 safe_print(f"  Added AOV: {name} ({bit_depth}-bit, direct)")
