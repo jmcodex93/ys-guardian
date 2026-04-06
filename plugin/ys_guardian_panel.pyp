@@ -1096,15 +1096,9 @@ def force_aov_tier(doc, tier_list):
                 except Exception:
                     pass
 
-                # Direct Output (RS native) instead of Multi-Pass (C4D)
-                try:
-                    new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
-                except Exception:
-                    pass
-                try:
-                    new_aov.SetParameter(c4d.REDSHIFT_AOV_DIRECT_ENABLED, True)
-                except Exception:
-                    pass
+                # Direct Output (ID 6001) ON, Multi-Pass (ID 5000) OFF
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
+                new_aov.SetParameter(6001, True)  # Direct Output > Enabled
 
                 new_aovs.append(new_aov)
                 added += 1
