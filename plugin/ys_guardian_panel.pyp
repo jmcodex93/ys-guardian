@@ -174,6 +174,13 @@ class CheckCache:
 # Global cache instance
 check_cache = CheckCache()
 
+def _safe_name(obj):
+    """Get object name safely, returns 'unknown' if object is dead"""
+    try:
+        return obj.GetName() or "unnamed"
+    except Exception:
+        return "unknown"
+
 # ---------------- utils ----------------
 def _iter_objs(op, max_count=None):
     """Optimized object iterator with limit"""
@@ -1735,6 +1742,9 @@ class YSPanel(gui.GeDialog):
         self._last_check_time = now
 
         try:
+            # Clear stale references before running checks
+            check_cache.clear()
+
             # Run checks
             lights_bad = check_lights(doc)
             vis_bad = check_visibility_traps(doc)
@@ -1763,15 +1773,15 @@ class YSPanel(gui.GeDialog):
                 dict(
                     lights=lights_count,
                     vis=vis_count,
-                    vis_names=[(o.GetName() or "object") for o in (vis_bad[:10] if vis_bad else [])],
+                    vis_names=[_safe_name(o) for o in (vis_bad[:10] if vis_bad else [])],
                     keys=keys_count,
-                    keys_names=[(o.GetName() or "object") for o in (keys_bad[:10] if keys_bad else [])],
+                    keys_names=[_safe_name(o) for o in (keys_bad[:10] if keys_bad else [])],
                     cam=cam_count,
                     rdc=rdc_count,
                     textures=textures_count,
                     unused_mats=unused_mats_count,
                     names=names_count,
-                    names_list=[(o.GetName() or "unnamed") for o in (names_bad[:10] if names_bad else [])],
+                    names_list=[_safe_name(o) for o in (names_bad[:10] if names_bad else [])],
                     output=output_count,
                 ),
                 self.ua.show,
@@ -1784,10 +1794,10 @@ class YSPanel(gui.GeDialog):
             self._cam_bad = cam_bad
             self._textures_bad = textures_bad
             self._scene_stats = scene_stats
-            # Reset cycling indices when results change
-            if unused_mats_bad != self._unused_mats_bad:
+            # Reset cycling indices when result count changes
+            if len(unused_mats_bad) != len(self._unused_mats_bad):
                 self._unused_mats_idx = 0
-            if names_bad != self._names_bad:
+            if len(names_bad) != len(self._names_bad):
                 self._names_idx = 0
 
             self._unused_mats_bad = unused_mats_bad
