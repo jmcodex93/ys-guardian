@@ -956,22 +956,17 @@ def _get_rs_videopost(doc):
     except Exception:
         return None
 
+RS_CAUSTICS_ENGINE_ID = 9014  # "Caustics Engine" parameter in RS VideoPost
+
 def _are_caustics_enabled(doc):
     """Check if caustics are enabled in RS render settings"""
     vprs = _get_rs_videopost(doc)
     if not vprs:
         return False
     try:
-        # Try known constant names for RS caustics enable
-        for const in ["REDSHIFT_RENDERER_CAUSTICS_ENABLE", "REDSHIFT_RENDERER_GI_CAUSTICS_ENABLE",
-                       "REDSHIFT_RENDERER_PHOTON_CAUSTICS_ENABLE"]:
-            val = getattr(c4d, const, None)
-            if val is not None:
-                if vprs[val]:
-                    return True
+        return bool(vprs[RS_CAUSTICS_ENGINE_ID])
     except Exception:
-        pass
-    return False
+        return False
 
 def _resolve_aov_type(name):
     """Resolve AOV name to c4d constant value"""
