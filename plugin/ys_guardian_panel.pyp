@@ -1191,31 +1191,6 @@ class StatusArea(gui.GeUserArea):
 
 # ---------------- Snapshot Handler ----------------
 # ---------------- Snapshot System (cross-platform) ----------------
-def _acescg_to_srgb(r, g, b):
-    """Convert ACEScg to linear sRGB via matrix transform"""
-    sr =  1.70505 * r - 0.62179 * g - 0.08326 * b
-    sg = -0.13026 * r + 1.14080 * g - 0.01055 * b
-    sb = -0.02400 * r - 0.12897 * g + 1.15297 * b
-    return sr, sg, sb
-
-def _aces_tonemap(x):
-    """ACES RRT/ODT filmic curve with 0.6 exposure (matches RS RenderView)"""
-    x = max(0.0, x) * 0.6
-    return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)
-
-def _linear_to_srgb(x):
-    """Proper sRGB OETF transfer function"""
-    x = max(0.0, min(1.0, x))
-    if x <= 0.0031308:
-        return x * 12.92
-    return 1.055 * (x ** (1.0 / 2.4)) - 0.055
-
-def _process_pixel_aces(r, g, b):
-    """Full pipeline: ACEScg -> linear sRGB -> ACES tonemap -> sRGB OETF"""
-    r, g, b = _acescg_to_srgb(r, g, b)
-    r, g, b = _aces_tonemap(r), _aces_tonemap(g), _aces_tonemap(b)
-    r, g, b = _linear_to_srgb(r), _linear_to_srgb(g), _linear_to_srgb(b)
-    return int(r * 255), int(g * 255), int(b * 255)
 
 def _get_stills_dir(doc, artist_name):
     """Get output directory: project_root/output/stills/Artist/YYMMDD/"""
@@ -1252,39 +1227,76 @@ def _find_latest_exr():
     exr_files.sort(key=lambda x: x[1], reverse=True)
     return exr_files[0][0], None
 
+def _find_system_python():
+    """Find a system Python 3 with OpenEXR support (cross-platform)"""
+    import subprocess
+
+    candidates = []
+    if sys.platform == "darwin":
+        candidates = ["/usr/bin/python3", "/usr/local/bin/python3",
+                      "/opt/homebrew/bin/python3"]
+    else:
+        import glob
+        candidates = ["python", "python3"]
+        for pattern in [r"C:\Program Files\Python*\python.exe",
+                        r"C:\Program Files (x86)\Python*\python.exe"]:
+            candidates.extend(glob.glob(pattern))
+        user_local = os.path.expanduser("~")
+        for pattern in [os.path.join(user_local, r"AppData\Local\Programs\Python\Python*\python.exe")]:
+            candidates.extend(glob.glob(pattern))
+
+    for py in candidates:
+        try:
+            result = subprocess.run(
+                [py, "-c", "import OpenEXR, numpy, PIL; print('OK')"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and "OK" in result.stdout:
+                safe_print(f"Found system Python with OpenEXR: {py}")
+                return py
+        except Exception:
+            continue
+
+    return None
+
+_CACHED_PYTHON = None
+
 def _convert_exr_to_png(exr_path, png_path):
-    """Convert EXR to PNG: ACEScg -> sRGB with ACES tone mapping"""
-    src = c4d.bitmaps.BaseBitmap()
-    result = src.InitWith(exr_path)
-    if result[0] != c4d.IMAGERESULT_OK:
-        return False, f"Failed to load EXR: {exr_path}"
+    """Convert EXR to PNG via external Python with OpenEXR + ACES pipeline"""
+    import subprocess
 
-    w = src.GetBw()
-    h = src.GetBh()
-    depth = src.GetBt()
-    safe_print(f"EXR loaded: {w}x{h}, {depth}-bit")
+    global _CACHED_PYTHON
+    if not _CACHED_PYTHON:
+        _CACHED_PYTHON = _find_system_python()
 
-    # Create output bitmap at same resolution
-    dst = c4d.bitmaps.BaseBitmap()
-    dst.Init(w, h, 24)
+    if not _CACHED_PYTHON:
+        return False, ("System Python with OpenEXR not found.\n\n"
+                       "Install dependencies:\n"
+                       "  pip3 install OpenEXR numpy Pillow")
 
-    # GetPixelDirect returns c4d.Vector with float values
-    # For EXR files C4D preserves HDR range via GetPixelDirect
-    for y in range(h):
-        for x in range(w):
-            px = src.GetPixelDirect(x, y)
-            ri, gi, bi = _process_pixel_aces(px.x, px.y, px.z)
-            dst.SetPixel(x, y, ri, gi, bi)
+    # Use the existing external converter script
+    converter = os.path.join(os.path.dirname(__file__), "exr_converter_external.py")
+    if not os.path.exists(converter):
+        return False, f"Converter script not found: {converter}"
 
-        if y > 0 and y % 200 == 0:
-            safe_print(f"  Converting... {int(y/h*100)}%")
+    try:
+        result = subprocess.run(
+            [_CACHED_PYTHON, converter, exr_path, png_path, "aces"],
+            capture_output=True, text=True, timeout=120
+        )
 
-    save_result = dst.Save(png_path, c4d.FILTER_PNG)
-    if save_result != c4d.IMAGERESULT_OK:
-        return False, f"Failed to save PNG: {png_path}"
+        if result.returncode == 0 and os.path.exists(png_path):
+            safe_print(f"Conversion complete: {os.path.basename(png_path)}")
+            return True, None
+        else:
+            error = result.stderr or result.stdout or "Unknown error"
+            safe_print(f"Converter error: {error}")
+            return False, f"Conversion failed:\n{error[:300]}"
 
-    safe_print(f"  Conversion complete: {w}x{h}")
-    return True, None
+    except subprocess.TimeoutExpired:
+        return False, "Conversion timed out (>120s)"
+    except Exception as e:
+        return False, f"Error running converter: {e}"
 
 def snapshot_save_still(doc, artist_name):
     """Main entry point: find latest EXR, convert with ACES, save to project"""
