@@ -931,11 +931,12 @@ _AOV_DEFS = {
 # Tier definitions — names must match _AOV_DEFS keys
 AOV_TIER_ESSENTIALS = [
     "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
-    "Emission", "Depth", "Motion Vectors", "Cryptomatte",
+    "SSS", "Refractions", "Emission",
+    "Depth", "Motion Vectors", "Cryptomatte",
 ]
 
 AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
-    "SSS", "Refractions", "Diffuse Filter", "World Position",
+    "Diffuse Filter", "World Position",
     "Normals", "Ambient Occlusion",
 ]
 
