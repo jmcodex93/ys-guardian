@@ -1255,11 +1255,9 @@ def _convert_exr_to_png(exr_path, png_path):
     for y in range(h):
         for x in range(w):
             if is_hdr:
-                # GetPixelDirect returns float values but may be clamped
-                # For HDR EXR, pixel values can exceed 1.0
-                r, g, b = src.GetPixelDirect(x, y)
+                px = src.GetPixelDirect(x, y)
+                r, g, b = px.x, px.y, px.z
             else:
-                # 8/16 bit: GetPixel returns 0-255
                 ri, gi, bi = src.GetPixel(x, y)
                 r, g, b = ri / 255.0, gi / 255.0, bi / 255.0
 
