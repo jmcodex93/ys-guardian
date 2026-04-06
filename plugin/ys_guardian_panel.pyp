@@ -1098,9 +1098,10 @@ def force_aov_tier(doc, tier_list):
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
                 new_aov.SetParameter(5001, True)
 
-                # Direct Output config
-                new_aov.SetParameter(6003, 4 if bit_depth == 32 else 3)  # EXR 16h / 32f
-                new_aov.SetParameter(6002, 1 if data_type == "rgba" else 0)  # RGBA / RGB
+                # Direct Output: format+depth (6003: 3=EXR16, 4=EXR32)
+                new_aov.SetParameter(6003, 4 if bit_depth == 32 else 3)
+                # Data type (6001: 0=RGB, 1=RGBA)
+                new_aov.SetParameter(6001, 1 if data_type == "rgba" else 0)
 
                 new_aovs.append(new_aov)
                 added += 1

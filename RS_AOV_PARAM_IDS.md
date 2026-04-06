@@ -39,8 +39,8 @@ These IDs are NOT exposed as named constants in the c4d Python module.
 | 5000 | Multi-Pass > Enabled | int | 0=off, 1=on | Multi-Pass Output |
 | 5001 | Direct Output > Enabled | int | 0=off, 1=on | Direct Output |
 | 6000 | Direct > Path | str | `$filepath$filename_$pass` | Direct Output |
-| 6001 | Direct > Data Type | int | 0=RGB, 3=? | Direct Output |
-| 6002 | Direct > Data Type | int | 0=RGB, 1=RGBA | Direct Output |
+| 6001 | Direct > Data Type | int | 0=RGB, 1=RGBA, 3=Scalar (Depth) | Direct Output |
+| 6002 | Direct > (unknown) | int | always 0 | Direct Output |
 | 6003 | Direct > Format+BitDepth | int | 3=OpenEXR 16-bit half, 4=OpenEXR 32-bit float | Direct Output |
 | 6004 | Direct > (unknown, always 1) | int | 1 (read-only?) | Direct Output |
 | 6005 | Direct > Storage | int | 0=Scanline, 1=Tiled | Direct Output |
