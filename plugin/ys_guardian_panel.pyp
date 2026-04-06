@@ -1391,6 +1391,8 @@ class G:
     # Output
     BTN_OPEN_FOLDER = 1010
     BTN_SNAPSHOT = 1009
+    BTN_SET_SNAPSHOT_DIR = 1160
+    LABEL_SNAPSHOT_DIR = 1161
     BTN_GITHUB = 1306
     BTN_BUG_REPORT = 1307
 
@@ -1417,6 +1419,13 @@ class YSPanel(gui.GeDialog):
         # Cycling indices for one-by-one selection
         self._unused_mats_idx = 0
         self._names_idx = 0
+
+    def _update_snapshot_dir_label(self):
+        snap_dir = GlobalSettings.get_snapshot_dir()
+        # Shorten for display: show last 2 path components
+        parts = snap_dir.replace("\\", "/").rstrip("/").split("/")
+        short = "/".join(parts[-2:]) if len(parts) > 2 else snap_dir
+        self.SetString(G.LABEL_SNAPSHOT_DIR, f"Snapshots: .../{short}")
 
     # ---- read scene -> UI
     def _sync_from_doc(self, doc):
@@ -1692,11 +1701,20 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(59, c4d.BFH_SCALEFIT, 1, 0, "Output")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
+
+        # Snapshot dir display + set button
+        self.GroupBegin(61, c4d.BFH_SCALEFIT, 2, 0)
+        self.AddStaticText(G.LABEL_SNAPSHOT_DIR, c4d.BFH_SCALEFIT, 0, 0, "", 0)
+        self.AddButton(G.BTN_SET_SNAPSHOT_DIR, c4d.BFH_RIGHT, 30, 0, "...")
+        self.GroupEnd()
+
+        # Action buttons
         self.GroupBegin(60, c4d.BFH_SCALEFIT, 3, 0)
         self.AddButton(G.BTN_OPEN_FOLDER, c4d.BFH_SCALEFIT, 0, 0, "Open Folder")
         self.AddButton(G.BTN_SNAPSHOT, c4d.BFH_SCALEFIT, 0, 0, "Save Still")
         self.AddButton(G.BTN_EXPORT_QC, c4d.BFH_SCALEFIT, 0, 0, "Export QC")
         self.GroupEnd()
+
         self.GroupEnd()
 
         # ── Footer ──
@@ -1725,7 +1743,10 @@ class YSPanel(gui.GeDialog):
             self.SetString(G.ARTIST, self._artist_name)
 
         # Initialize active preset
-        self._active_preset = "previz"  # Default preset
+        self._active_preset = "previz"
+
+        # Show snapshot directory
+        self._update_snapshot_dir_label()
 
         doc = c4d.documents.GetActiveDocument()
         self._sync_from_doc(doc)
@@ -1796,6 +1817,13 @@ class YSPanel(gui.GeDialog):
 
         elif cid == G.BTN_SNAPSHOT:
             self._take_renderview_snapshot()
+
+        elif cid == G.BTN_SET_SNAPSHOT_DIR:
+            new_dir = c4d.storage.LoadDialog(title="Select RS Snapshot Folder", flags=c4d.FILESELECT_DIRECTORY)
+            if new_dir:
+                GlobalSettings.set_snapshot_dir(new_dir)
+                self._update_snapshot_dir_label()
+                safe_print(f"Snapshot directory set to: {new_dir}")
 
         elif cid == G.BTN_OPEN_FOLDER:
             self._open_artist_folder()
