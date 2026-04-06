@@ -1067,6 +1067,14 @@ def force_aov_tier(doc, tier_list):
     if not vprs:
         return 0, "Redshift VideoPost not found"
 
+    # Enable AOV system + Multi-Part EXR on the VideoPost
+    try:
+        vprs[c4d.REDSHIFT_RENDERER_AOV_GLOBAL_MODE] = c4d.REDSHIFT_RENDERER_AOV_GLOBAL_MODE_ENABLE
+        vprs[c4d.REDSHIFT_RENDERER_AOV_MULTIPART] = True
+        safe_print("  AOV Mode: Enabled, Multi-Part EXR: ON")
+    except Exception as e:
+        safe_print(f"  Warning: Could not set AOV global mode: {e}")
+
     tier_list = _build_tier_list(doc, tier_list)
 
     try:
@@ -1092,8 +1100,14 @@ def force_aov_tier(doc, tier_list):
 
             _, bit_depth, data_type, compression = _AOV_DEFS[name]
 
-            # Compression values for ID 6004
-            COMP_MAP = {"default": 1, "zip": 201, "zips": 202, "piz": 203, "dwaa": 206, "dwab": 207}
+            COMP_MAP = {
+                "default": c4d.REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT,
+                "zip": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIP,
+                "zips": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIPS,
+                "piz": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_PIZ,
+                "dwaa": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAA,
+                "dwab": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAB,
+            }
 
             try:
                 new_aov = redshift.RSAOV()
@@ -1103,14 +1117,16 @@ def force_aov_tier(doc, tier_list):
 
                 # Multi-Pass OFF, Direct ON
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
-                new_aov.SetParameter(5001, True)
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_ENABLED, True)
 
-                # Direct Output config
-                new_aov.SetParameter(6003, 4 if bit_depth == 32 else 3)  # EXR 16h / 32f
-                new_aov.SetParameter(6001, 1 if data_type == "rgba" else 0)  # RGBA / RGB
-                new_aov.SetParameter(6004, COMP_MAP.get(compression, 1))  # Compression
-                if compression in ("dwaa", "dwab"):
-                    new_aov.SetParameter(6007, 45.0)  # DWA level
+                # Direct Output config (using named constants)
+                depth_const = c4d.REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT32 if bit_depth == 32 else c4d.REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT16
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_BIT_DEPTH, depth_const)
+                dtype_const = c4d.REDSHIFT_AOV_FILE_DATATYPE_RGBA if data_type == "rgba" else c4d.REDSHIFT_AOV_FILE_DATATYPE_RGB
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_DATA_TYPE, dtype_const)
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_COMPRESSION, COMP_MAP.get(compression, c4d.REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT))
+                if compression in ("dwab", "dwaa"):
+                    new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_EXR_DWA_COMPRESSION, 45.0)
 
                 # Per-AOV options based on compositor target
                 comp_target = int(GlobalSettings.get('comp_target', 0))
