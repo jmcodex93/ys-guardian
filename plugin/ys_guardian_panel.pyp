@@ -1191,12 +1191,31 @@ class StatusArea(gui.GeUserArea):
 
 # ---------------- Snapshot Handler ----------------
 # ---------------- Snapshot System (cross-platform) ----------------
-def _aces_tonemap(r, g, b):
-    """ACES filmic tone mapping (Stephen Hill approximation)"""
-    def _t(x):
-        x = max(0.0, x)
-        return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)
-    return _t(r), _t(g), _t(b)
+def _acescg_to_srgb(r, g, b):
+    """Convert ACEScg to linear sRGB via matrix transform"""
+    sr =  1.70505 * r - 0.62179 * g - 0.08326 * b
+    sg = -0.13026 * r + 1.14080 * g - 0.01055 * b
+    sb = -0.02400 * r - 0.12897 * g + 1.15297 * b
+    return sr, sg, sb
+
+def _aces_tonemap(x):
+    """ACES RRT/ODT filmic curve with 0.6 exposure (matches RS RenderView)"""
+    x = max(0.0, x) * 0.6
+    return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)
+
+def _linear_to_srgb(x):
+    """Proper sRGB OETF transfer function"""
+    x = max(0.0, min(1.0, x))
+    if x <= 0.0031308:
+        return x * 12.92
+    return 1.055 * (x ** (1.0 / 2.4)) - 0.055
+
+def _process_pixel_aces(r, g, b):
+    """Full pipeline: ACEScg -> linear sRGB -> ACES tonemap -> sRGB OETF"""
+    r, g, b = _acescg_to_srgb(r, g, b)
+    r, g, b = _aces_tonemap(r), _aces_tonemap(g), _aces_tonemap(b)
+    r, g, b = _linear_to_srgb(r), _linear_to_srgb(g), _linear_to_srgb(b)
+    return int(r * 255), int(g * 255), int(b * 255)
 
 def _get_stills_dir(doc, artist_name):
     """Get output directory: project_root/output/stills/Artist/YYMMDD/"""
@@ -1234,47 +1253,47 @@ def _find_latest_exr():
     return exr_files[0][0], None
 
 def _convert_exr_to_png(exr_path, png_path):
-    """Convert EXR to PNG using C4D BaseBitmap + ACES tone mapping"""
-    # Load EXR via C4D (native, cross-platform)
-    src = c4d.bitmaps.BaseBitmap()
-    result = src.InitWith(exr_path)
+    """Convert EXR to PNG: ACEScg -> sRGB with ACES tone mapping"""
+    # Load EXR as MultipassBitmap to preserve HDR float values
+    mpb = c4d.bitmaps.MultipassBitmap(0, 0, c4d.COLORMODE_RGBf)
+    result = mpb.InitWith(exr_path)
     if result[0] != c4d.IMAGERESULT_OK:
-        return False, f"Failed to load EXR: {exr_path}"
+        # Fallback to BaseBitmap
+        mpb = c4d.bitmaps.BaseBitmap()
+        result = mpb.InitWith(exr_path)
+        if result[0] != c4d.IMAGERESULT_OK:
+            return False, f"Failed to load EXR: {exr_path}"
 
-    w = src.GetBw()
-    h = src.GetBh()
-    depth = src.GetBt()
+    w = mpb.GetBw()
+    h = mpb.GetBh()
+    depth = mpb.GetBt()
+    safe_print(f"EXR loaded: {w}x{h}, {depth}-bit")
 
-    # Create output bitmap (8-bit RGB for PNG)
+    # Create output bitmap at same resolution
     dst = c4d.bitmaps.BaseBitmap()
     dst.Init(w, h, 24)
 
-    # Check if HDR (32-bit per channel = 96 or 128 bit total)
-    is_hdr = depth >= 96
-
+    # Process each pixel with full ACES pipeline
     for y in range(h):
         for x in range(w):
-            if is_hdr:
-                px = src.GetPixelDirect(x, y)
-                r, g, b = px.x, px.y, px.z
-            else:
-                ri, gi, bi = src.GetPixel(x, y)
-                r, g, b = ri / 255.0, gi / 255.0, bi / 255.0
+            # Read HDR float values
+            px = mpb.GetPixelDirect(x, y)
+            r, g, b = px.x, px.y, px.z
 
-            # Apply ACES tone mapping
-            r, g, b = _aces_tonemap(r, g, b)
-
-            # Clamp and convert to 8-bit
-            ri = max(0, min(255, int(r * 255)))
-            gi = max(0, min(255, int(g * 255)))
-            bi = max(0, min(255, int(b * 255)))
+            # Full pipeline: ACEScg -> linear sRGB -> ACES tonemap -> sRGB
+            ri, gi, bi = _process_pixel_aces(r, g, b)
             dst.SetPixel(x, y, ri, gi, bi)
+
+        # Progress feedback every 100 lines
+        if y > 0 and y % 100 == 0:
+            safe_print(f"  Converting... {int(y/h*100)}%")
 
     # Save as PNG
     save_result = dst.Save(png_path, c4d.FILTER_PNG)
     if save_result != c4d.IMAGERESULT_OK:
         return False, f"Failed to save PNG: {png_path}"
 
+    safe_print(f"  Conversion complete: {w}x{h}")
     return True, None
 
 def snapshot_save_still(doc, artist_name):
