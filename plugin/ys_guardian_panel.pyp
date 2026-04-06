@@ -1109,15 +1109,27 @@ def force_aov_tier(doc, tier_list):
                 if compression in ("dwaa", "dwab"):
                     new_aov.SetParameter(6007, 45.0)  # DWA level
 
-                # Per-AOV type options for Nuke compositing
+                # Per-AOV options based on compositor target
+                comp_target = int(GlobalSettings.get('comp_target', 0))
+
                 if name == "Depth":
-                    new_aov.SetParameter(1004, 3)  # Filter Type = Center Sample (no interpolation)
-                    new_aov.SetParameter(1019, 0)  # Depth Mode = Z (planar)
-                    new_aov.SetParameter(1020, 0)  # Use Camera Near/Far = OFF (raw world units)
+                    new_aov.SetParameter(1004, 3)  # Filter Type = Center Sample (both targets)
+                    if comp_target == 0:  # Nuke
+                        new_aov.SetParameter(1019, 0)  # Depth Mode = Z (raw world units)
+                        new_aov.SetParameter(1020, 0)  # Camera Near/Far = OFF
+                    else:  # After Effects
+                        new_aov.SetParameter(1019, 2)  # Depth Mode = Z Normalized Inverted (white=near)
+                        new_aov.SetParameter(1020, 1)  # Camera Near/Far = ON
+
                 elif name == "Motion Vectors":
-                    new_aov.SetParameter(1008, 1)  # Output Raw Vectors = ON
-                    new_aov.SetParameter(1009, 1)  # No Clamp = ON
-                    new_aov.SetParameter(1013, 0)  # Filtering = OFF
+                    new_aov.SetParameter(1013, 0)  # Filtering = OFF (both targets)
+                    if comp_target == 0:  # Nuke
+                        new_aov.SetParameter(1008, 1)  # Output Raw Vectors = ON
+                        new_aov.SetParameter(1009, 1)  # No Clamp = ON
+                    else:  # After Effects (RSMB Pro format)
+                        new_aov.SetParameter(1008, 0)  # Output Raw Vectors = OFF (normalized 0-1)
+                        new_aov.SetParameter(1009, 0)  # No Clamp = OFF
+                        new_aov.SetParameter(1010, 64) # Max Motion = 64px (match RSMB MaxDisplace)
 
                 new_aovs.append(new_aov)
                 added += 1
@@ -1634,6 +1646,7 @@ class G:
     # Output
     BTN_OPEN_FOLDER = 1010
     BTN_SNAPSHOT = 1009
+    COMP_TARGET = 1154
     BTN_INFO_AOVS = 1155
     BTN_FORCE_ESSENTIALS = 1156
     BTN_FORCE_PRODUCTION = 1157
@@ -1932,8 +1945,13 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(79, c4d.BFH_SCALEFIT, 1, 0, "Redshift AOVs")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(80, c4d.BFH_SCALEFIT, 3, 0)
+        self.GroupBegin(81, c4d.BFH_SCALEFIT, 4, 0)
+        self.AddStaticText(0, c4d.BFH_LEFT, 0, 0, "Comp", 0)
+        self.AddComboBox(G.COMP_TARGET, c4d.BFH_LEFT, 100, 0)
         self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT, 0, 0, "", 0)
+        self.GroupEnd()
+        self.GroupBegin(80, c4d.BFH_SCALEFIT, 2, 0)
         self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
         self.AddButton(G.BTN_FORCE_PRODUCTION, c4d.BFH_SCALEFIT, 0, 0, "Production")
         self.GroupEnd()
@@ -2004,6 +2022,12 @@ class YSPanel(gui.GeDialog):
 
         # Initialize active preset
         self._active_preset = "previz"
+
+        # Compositor target dropdown
+        self.AddChild(G.COMP_TARGET, 0, "Nuke")
+        self.AddChild(G.COMP_TARGET, 1, "After Effects")
+        saved_target = GlobalSettings.get('comp_target', 0)
+        self.SetInt32(G.COMP_TARGET, int(saved_target))
 
         # Show snapshot directory
         self._update_snapshot_dir_label()
@@ -2078,6 +2102,9 @@ class YSPanel(gui.GeDialog):
         elif cid == G.BTN_SNAPSHOT:
             self._take_renderview_snapshot()
 
+        elif cid == G.COMP_TARGET:
+            GlobalSettings.set('comp_target', self.GetInt32(G.COMP_TARGET))
+
         elif cid == G.BTN_INFO_AOVS:
             result = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
             if not result["available"]:
@@ -2085,7 +2112,8 @@ class YSPanel(gui.GeDialog):
             elif not result["aovs"]:
                 c4d.gui.MessageDialog("No AOVs configured.\n\nUse 'Essentials' or 'Production' to add passes.")
             else:
-                msg = f"REDSHIFT AOVs: {len(result['aovs'])}\n\n"
+                target_name = "Nuke" if int(GlobalSettings.get('comp_target', 0)) == 0 else "After Effects"
+                msg = f"REDSHIFT AOVs: {len(result['aovs'])}  |  Target: {target_name}\n\n"
                 msg += "ACTIVE:\n"
                 for aov in result["aovs"]:
                     status = "ON" if aov.get("enabled") else "OFF"
@@ -2335,8 +2363,14 @@ class YSPanel(gui.GeDialog):
             if error:
                 c4d.gui.MessageDialog(f"Error: {error}")
             else:
-                safe_print(f"Added {added} {tier_name} AOVs")
-                c4d.gui.MessageDialog(f"Added {added} {tier_name} AOV(s).\n\n32-bit float set for: Depth, Motion Vectors, World Position")
+                target_name = "Nuke" if int(GlobalSettings.get('comp_target', 0)) == 0 else "After Effects"
+                safe_print(f"Added {added} {tier_name} AOVs for {target_name}")
+                msg = f"Added {added} {tier_name} AOV(s) for {target_name}.\n\n"
+                if target_name == "Nuke":
+                    msg += "Depth: Z raw, Center Sample\nMotion Vectors: Raw, No Clamp, No Filter"
+                else:
+                    msg += "Depth: Z Normalized Inverted, Center Sample\nMotion Vectors: Normalized 0-1, Max Motion=64"
+                c4d.gui.MessageDialog(msg)
 
     def _open_artist_folder(self):
         """Open the artist's output folder"""
