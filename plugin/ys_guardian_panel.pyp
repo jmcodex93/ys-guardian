@@ -935,6 +935,7 @@ _AOV_DEFS = {
     "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16),
     "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER", "REDSHIFT_AOV_TYPE_REFLECTIONS_FILTER", "REDSHIFT_AOV_TYPE_REFL_FILTER"], 16),
     "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
+    "Refractions Raw":      (["REDSHIFT_AOV_TYPE_REFRACTIONS_RAW", "REDSHIFT_AOV_TYPE_REFRACTION_RAW"], 16),
 }
 
 # Tier definitions — names must match _AOV_DEFS keys
@@ -950,8 +951,7 @@ AOV_TIER_ESSENTIALS = [
 AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
     "Diffuse Filter", "World Position", "Normals", "Ambient Occlusion",
     "Volume Lighting", "Volume Fog Tint", "Volume Fog Emission",
-    "Diffuse Lighting Raw", "Reflection Filter",
-    "Shadows", "Bump Normals",
+    "Reflection Filter", "Refractions Raw",
 ]
 
 def _get_rs_videopost(doc):
