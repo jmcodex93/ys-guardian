@@ -1096,9 +1096,19 @@ def force_aov_tier(doc, tier_list):
                 except Exception:
                     pass
 
+                # Direct Output (RS native) instead of Multi-Pass (C4D)
+                try:
+                    new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
+                except Exception:
+                    pass
+                try:
+                    new_aov.SetParameter(c4d.REDSHIFT_AOV_DIRECT_ENABLED, True)
+                except Exception:
+                    pass
+
                 new_aovs.append(new_aov)
                 added += 1
-                safe_print(f"  Added AOV: {name} ({bit_depth}-bit)")
+                safe_print(f"  Added AOV: {name} ({bit_depth}-bit, direct)")
             except Exception as e:
                 safe_print(f"  Failed: '{name}': {e}")
 
