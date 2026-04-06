@@ -1093,9 +1093,8 @@ def force_aov_tier(doc, tier_list):
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
                 new_aov.SetParameter(5001, True)   # Direct Output > Enabled
 
-                # Bit depth for Direct Output (6004): 0=8bit, 1=16bit half, 2=32bit float
-                depth_val = 2 if bit_depth == 32 else 1
-                new_aov.SetParameter(6004, depth_val)
+                # Direct Output format+depth (6003): 3=EXR 16-bit, 4=EXR 32-bit
+                new_aov.SetParameter(6003, 4 if bit_depth == 32 else 3)
 
                 new_aovs.append(new_aov)
                 added += 1
@@ -1105,6 +1104,8 @@ def force_aov_tier(doc, tier_list):
 
         if added > 0:
             redshift.RendererSetAOVs(vprs, new_aovs)
+
+
             check_cache.clear()
             c4d.EventAdd()
 
