@@ -910,32 +910,37 @@ def get_scene_stats(doc):
     return stats
 
 # ---------------- RS AOV management ----------------
-# AOV definitions: (const_candidates, bit_depth)
+# AOV definitions: (const_candidates, bit_depth, data_type)
 # bit_depth: 16 = half-float, 32 = full float
+# data_type: "rgb" = RGB, "rgba" = RGBA (beauty components need alpha for transparency)
+# Direct Output param IDs: 6003=format+depth (3=EXR16, 4=EXR32), 6002=data_type (0=RGB, 1=RGBA)
 _AOV_DEFS = {
-    "Diffuse Lighting":   (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING"], 16),
-    "GI":                 (["REDSHIFT_AOV_TYPE_GI", "REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION", "REDSHIFT_AOV_TYPE_INDIRECT_DIFFUSE", "REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
-    "Specular Lighting":  (["REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING"], 16),
-    "Reflections":        (["REDSHIFT_AOV_TYPE_REFLECTIONS"], 16),
-    "Emission":           (["REDSHIFT_AOV_TYPE_EMISSION"], 16),
-    "Depth":              (["REDSHIFT_AOV_TYPE_DEPTH", "REDSHIFT_AOV_TYPE_Z_DEPTH"], 32),
-    "Motion Vectors":     (["REDSHIFT_AOV_TYPE_MOTION_VECTORS"], 32),
-    "Cryptomatte":        (["REDSHIFT_AOV_TYPE_CRYPTOMATTE"], 32),
-    "SSS":                (["REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER", "REDSHIFT_AOV_TYPE_SSS"], 16),
-    "Refractions":        (["REDSHIFT_AOV_TYPE_REFRACTIONS"], 16),
-    "Diffuse Filter":     (["REDSHIFT_AOV_TYPE_DIFFUSE_FILTER"], 16),
-    "World Position":     (["REDSHIFT_AOV_TYPE_WORLD_POSITION"], 32),
-    "Normals":            (["REDSHIFT_AOV_TYPE_NORMALS"], 16),
-    "Ambient Occlusion":  (["REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION"], 16),
-    "Volume Lighting":      (["REDSHIFT_AOV_TYPE_VOLUME_LIGHTING"], 16),
-    "Volume Fog Tint":      (["REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT"], 16),
-    "Volume Fog Emission":  (["REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION"], 16),
-    "Shadows":              (["REDSHIFT_AOV_TYPE_SHADOWS"], 16),
-    "Caustics":             (["REDSHIFT_AOV_TYPE_CAUSTICS"], 16),
-    "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16),
-    "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER", "REDSHIFT_AOV_TYPE_REFLECTIONS_FILTER", "REDSHIFT_AOV_TYPE_REFL_FILTER"], 16),
-    "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
-    "Refractions Raw":      (["REDSHIFT_AOV_TYPE_REFRACTIONS_RAW", "REDSHIFT_AOV_TYPE_REFRACTION_RAW"], 16),
+    # Beauty rebuild components (RGBA for transparent compositing)
+    "Diffuse Lighting":     (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING"], 16, "rgba"),
+    "GI":                   (["REDSHIFT_AOV_TYPE_GI", "REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION", "REDSHIFT_AOV_TYPE_INDIRECT_DIFFUSE", "REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16, "rgba"),
+    "Specular Lighting":    (["REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING"], 16, "rgba"),
+    "Reflections":          (["REDSHIFT_AOV_TYPE_REFLECTIONS"], 16, "rgba"),
+    "SSS":                  (["REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER", "REDSHIFT_AOV_TYPE_SSS"], 16, "rgba"),
+    "Refractions":          (["REDSHIFT_AOV_TYPE_REFRACTIONS"], 16, "rgba"),
+    "Emission":             (["REDSHIFT_AOV_TYPE_EMISSION"], 16, "rgba"),
+    "Caustics":             (["REDSHIFT_AOV_TYPE_CAUSTICS"], 16, "rgba"),
+    "Volume Lighting":      (["REDSHIFT_AOV_TYPE_VOLUME_LIGHTING"], 16, "rgba"),
+    "Volume Fog Tint":      (["REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT"], 16, "rgba"),
+    "Volume Fog Emission":  (["REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION"], 16, "rgba"),
+    "Shadows":              (["REDSHIFT_AOV_TYPE_SHADOWS"], 16, "rgba"),
+    # Filter/Raw passes (RGBA)
+    "Diffuse Filter":       (["REDSHIFT_AOV_TYPE_DIFFUSE_FILTER"], 16, "rgba"),
+    "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER", "REDSHIFT_AOV_TYPE_REFLECTIONS_FILTER", "REDSHIFT_AOV_TYPE_REFL_FILTER"], 16, "rgba"),
+    "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16, "rgba"),
+    "Refractions Raw":      (["REDSHIFT_AOV_TYPE_REFRACTIONS_RAW", "REDSHIFT_AOV_TYPE_REFRACTION_RAW"], 16, "rgba"),
+    "Ambient Occlusion":    (["REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION"], 16, "rgba"),
+    # Utility passes (RGB — no alpha needed)
+    "Depth":                (["REDSHIFT_AOV_TYPE_DEPTH", "REDSHIFT_AOV_TYPE_Z_DEPTH"], 32, "rgb"),
+    "Motion Vectors":       (["REDSHIFT_AOV_TYPE_MOTION_VECTORS"], 32, "rgb"),
+    "Cryptomatte":          (["REDSHIFT_AOV_TYPE_CRYPTOMATTE"], 32, "rgb"),
+    "World Position":       (["REDSHIFT_AOV_TYPE_WORLD_POSITION"], 32, "rgb"),
+    "Normals":              (["REDSHIFT_AOV_TYPE_NORMALS"], 16, "rgb"),
+    "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16, "rgb"),
 }
 
 # Tier definitions — names must match _AOV_DEFS keys
@@ -996,7 +1001,7 @@ def _resolve_aov_type(name):
     aov_def = _AOV_DEFS.get(name)
     if not aov_def:
         return None
-    candidates, _ = aov_def
+    candidates = aov_def[0]
     for const_name in candidates:
         val = getattr(c4d, const_name, None)
         if val is not None:
@@ -1081,7 +1086,7 @@ def force_aov_tier(doc, tier_list):
                 safe_print(f"  Skipped AOV '{name}': constant not found")
                 continue
 
-            _, bit_depth = _AOV_DEFS[name]
+            _, bit_depth, data_type = _AOV_DEFS[name]
 
             try:
                 new_aov = redshift.RSAOV()
@@ -1089,12 +1094,13 @@ def force_aov_tier(doc, tier_list):
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_NAME, name)
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_ENABLED, True)
 
-                # Direct Output ON, Multi-Pass OFF
+                # Multi-Pass OFF, Direct ON
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
-                new_aov.SetParameter(5001, True)   # Direct Output > Enabled
+                new_aov.SetParameter(5001, True)
 
-                # Direct Output format+depth (6003): 3=EXR 16-bit, 4=EXR 32-bit
-                new_aov.SetParameter(6003, 4 if bit_depth == 32 else 3)
+                # Direct Output config
+                new_aov.SetParameter(6003, 4 if bit_depth == 32 else 3)  # EXR 16h / 32f
+                new_aov.SetParameter(6002, 1 if data_type == "rgba" else 0)  # RGBA / RGB
 
                 new_aovs.append(new_aov)
                 added += 1
