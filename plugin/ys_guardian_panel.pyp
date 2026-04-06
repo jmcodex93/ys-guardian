@@ -963,7 +963,7 @@ def _get_rs_videopost(doc):
     except Exception:
         return None
 
-RS_CAUSTICS_ENGINE_ID = 9014  # "Caustics Engine" parameter in RS VideoPost
+RS_CAUSTICS_ENABLED_ID = 9013  # "Enabled" checkbox in RS Caustics tab
 
 def _are_caustics_enabled(doc):
     """Check if caustics are enabled in RS render settings"""
@@ -971,7 +971,7 @@ def _are_caustics_enabled(doc):
     if not vprs:
         return False
     try:
-        return bool(vprs[RS_CAUSTICS_ENGINE_ID])
+        return vprs[RS_CAUSTICS_ENABLED_ID] == 1
     except Exception:
         return False
 
