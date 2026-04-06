@@ -1067,13 +1067,17 @@ def force_aov_tier(doc, tier_list):
     if not vprs:
         return 0, "Redshift VideoPost not found"
 
-    # Enable AOV system + Multi-Part EXR on the VideoPost
+    # Enable AOV system + Multi-Part EXR with global settings
     try:
         vprs[c4d.REDSHIFT_RENDERER_AOV_GLOBAL_MODE] = c4d.REDSHIFT_RENDERER_AOV_GLOBAL_MODE_ENABLE
         vprs[c4d.REDSHIFT_RENDERER_AOV_MULTIPART] = True
-        safe_print("  AOV Mode: Enabled, Multi-Part EXR: ON")
+        # Multi-Part forces uniform settings — use 32-bit float for Depth/MV precision
+        vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH] = c4d.REDSHIFT_RENDERER_AOV_FILE_BIT_DEPTH_FLOAT32
+        vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_COMPRESSION] = c4d.REDSHIFT_RENDERER_AOV_FILE_COMPRESSION_EXR_DWAB
+        vprs[c4d.REDSHIFT_RENDERER_AOV_FILE_EXR_DWA_COMPRESSION] = 45.0
+        safe_print("  AOV Mode: Enabled, Multi-Part EXR: ON, 32-bit Float, DWAB 45")
     except Exception as e:
-        safe_print(f"  Warning: Could not set AOV global mode: {e}")
+        safe_print(f"  Warning: Could not set AOV global settings: {e}")
 
     tier_list = _build_tier_list(doc, tier_list)
 
