@@ -920,29 +920,38 @@ _AOV_DEFS = {
     "World Position":     (["REDSHIFT_AOV_TYPE_WORLD_POSITION"], 32),
     "Normals":            (["REDSHIFT_AOV_TYPE_NORMALS"], 16),
     "Ambient Occlusion":  (["REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION"], 16),
-    "Volume Lighting":    (["REDSHIFT_AOV_TYPE_VOLUME_LIGHTING"], 16),
-    "Shadows":            (["REDSHIFT_AOV_TYPE_SHADOWS"], 16),
-    "Caustics":           (["REDSHIFT_AOV_TYPE_CAUSTICS"], 16),
-    "Bump Normals":       (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16),
-    "Reflection Filter":  (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER"], 16),
+    "Volume Lighting":      (["REDSHIFT_AOV_TYPE_VOLUME_LIGHTING"], 16),
+    "Volume Fog Tint":      (["REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT"], 16),
+    "Volume Fog Emission":  (["REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION"], 16),
+    "Background":           (["REDSHIFT_AOV_TYPE_BACKGROUND"], 16),
+    "Shadows":              (["REDSHIFT_AOV_TYPE_SHADOWS"], 16),
+    "Caustics":             (["REDSHIFT_AOV_TYPE_CAUSTICS"], 16),
+    "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16),
+    "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER"], 16),
     "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
 }
 
 # Tier definitions — names must match _AOV_DEFS keys
+# Tier 1: Complete non-volumetric beauty rebuild + utility
+# Beauty = Diffuse + GI + Specular + Reflections + SSS + Refractions + Emission + Caustics + Background
 AOV_TIER_ESSENTIALS = [
     "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
-    "SSS", "Refractions", "Emission",
+    "SSS", "Refractions", "Emission", "Caustics", "Background",
     "Depth", "Motion Vectors", "Cryptomatte",
 ]
 
+# Tier 2: + volumetric rebuild + relighting data
+# Full Beauty = (base) × Volume Fog Tint + Volume Lighting + Volume Fog Emission
 AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
+    "Volume Lighting", "Volume Fog Tint", "Volume Fog Emission",
     "Diffuse Filter", "World Position",
     "Normals", "Ambient Occlusion",
 ]
 
+# Tier 3: + raw/filter pairs + extra passes for maximum compositing flexibility
 AOV_TIER_HERO = AOV_TIER_PRODUCTION + [
-    "Diffuse Lighting Raw", "Reflection Filter", "Volume Lighting",
-    "Shadows", "Bump Normals", "Caustics",
+    "Diffuse Lighting Raw", "Reflection Filter",
+    "Shadows", "Bump Normals",
 ]
 
 def _get_rs_videopost(doc):
