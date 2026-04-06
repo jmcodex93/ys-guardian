@@ -923,35 +923,28 @@ _AOV_DEFS = {
     "Volume Lighting":      (["REDSHIFT_AOV_TYPE_VOLUME_LIGHTING"], 16),
     "Volume Fog Tint":      (["REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT"], 16),
     "Volume Fog Emission":  (["REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION"], 16),
-    "Background":           (["REDSHIFT_AOV_TYPE_BACKGROUND"], 16),
     "Shadows":              (["REDSHIFT_AOV_TYPE_SHADOWS"], 16),
     "Caustics":             (["REDSHIFT_AOV_TYPE_CAUSTICS"], 16),
     "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16),
-    "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER"], 16),
+    "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER", "REDSHIFT_AOV_TYPE_REFLECTIONS_FILTER", "REDSHIFT_AOV_TYPE_REFL_FILTER"], 16),
     "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
 }
 
 # Tier definitions — names must match _AOV_DEFS keys
-# Tier 1: Complete non-volumetric beauty rebuild + utility
-# Beauty = Diffuse + GI + Specular + Reflections + SSS + Refractions + Emission + Caustics + Background
+# Tier 1: Beauty rebuild + essential utility
+# Beauty = Diffuse + GI + Specular + Reflections + SSS + Refractions + Emission (+ Caustics if enabled)
 AOV_TIER_ESSENTIALS = [
     "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
-    "SSS", "Refractions", "Emission", "Caustics", "Background",
+    "SSS", "Refractions", "Emission",
     "Depth", "Motion Vectors", "Cryptomatte",
 ]
 
-# Tier 2: + volumetric rebuild + relighting data
-# Full Beauty = (base) × Volume Fog Tint + Volume Lighting + Volume Fog Emission
+# Tier 2: Full compositing control — relighting, volumes, raw passes
 AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
+    "Diffuse Filter", "World Position", "Normals", "Ambient Occlusion",
     "Volume Lighting", "Volume Fog Tint", "Volume Fog Emission",
-    "Diffuse Filter", "World Position",
-    "Normals", "Ambient Occlusion",
-]
-
-# Tier 3: + raw/filter pairs + extra passes for maximum compositing flexibility
-AOV_TIER_HERO = AOV_TIER_PRODUCTION + [
     "Diffuse Lighting Raw", "Reflection Filter",
-    "Shadows", "Bump Normals",
+    "Shadows", "Bump Normals", "Caustics",
 ]
 
 def _get_rs_videopost(doc):
@@ -1571,7 +1564,6 @@ class G:
     BTN_INFO_AOVS = 1155
     BTN_FORCE_ESSENTIALS = 1156
     BTN_FORCE_PRODUCTION = 1157
-    BTN_FORCE_HERO = 1158
     BTN_SET_SNAPSHOT_DIR = 1160
     LABEL_SNAPSHOT_DIR = 1161
     BTN_GITHUB = 1306
@@ -1864,11 +1856,10 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(79, c4d.BFH_SCALEFIT, 1, 0, "Redshift AOVs")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(80, c4d.BFH_SCALEFIT, 4, 0)
+        self.GroupBegin(80, c4d.BFH_SCALEFIT, 3, 0)
         self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
         self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
         self.AddButton(G.BTN_FORCE_PRODUCTION, c4d.BFH_SCALEFIT, 0, 0, "Production")
-        self.AddButton(G.BTN_FORCE_HERO, c4d.BFH_SCALEFIT, 0, 0, "Hero Shot")
         self.GroupEnd()
         self.GroupEnd()
 
@@ -2024,10 +2015,9 @@ class YSPanel(gui.GeDialog):
                     status = "ON" if aov.get("enabled") else "OFF"
                     msg += f"  [{status}] {aov['name']}\n"
 
-                # Check against all tiers
+                # Check against both tiers
                 ess = check_rs_aovs(doc, AOV_TIER_ESSENTIALS)
                 prod = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
-                hero = check_rs_aovs(doc, AOV_TIER_HERO)
 
                 if ess["missing"]:
                     msg += f"\nMISSING ESSENTIALS ({len(ess['missing'])}):\n"
@@ -2040,15 +2030,7 @@ class YSPanel(gui.GeDialog):
                     for n in prod_only:
                         msg += f"  - {n}\n"
 
-                hero_only = [n for n in hero["missing"] if n not in prod["missing"]]
-                if hero_only:
-                    msg += f"\nMISSING HERO SHOT ({len(hero_only)}):\n"
-                    for n in hero_only:
-                        msg += f"  ~ {n}\n"
-
-                if not hero["missing"]:
-                    msg += "\nAll Hero Shot AOVs present."
-                elif not prod["missing"]:
+                if not prod["missing"]:
                     msg += "\nAll Production AOVs present."
                 elif not ess["missing"]:
                     msg += "\nAll Essentials AOVs present."
@@ -2060,9 +2042,6 @@ class YSPanel(gui.GeDialog):
 
         elif cid == G.BTN_FORCE_PRODUCTION:
             self._force_aov_tier(doc, AOV_TIER_PRODUCTION, "Production")
-
-        elif cid == G.BTN_FORCE_HERO:
-            self._force_aov_tier(doc, AOV_TIER_HERO, "Hero Shot")
 
         elif cid == G.BTN_SET_SNAPSHOT_DIR:
             new_dir = c4d.storage.LoadDialog(title="Select RS Snapshot Folder", flags=c4d.FILESELECT_DIRECTORY)
