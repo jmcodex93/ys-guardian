@@ -956,6 +956,23 @@ def _get_rs_videopost(doc):
     except Exception:
         return None
 
+def _are_caustics_enabled(doc):
+    """Check if caustics are enabled in RS render settings"""
+    vprs = _get_rs_videopost(doc)
+    if not vprs:
+        return False
+    try:
+        # Try known constant names for RS caustics enable
+        for const in ["REDSHIFT_RENDERER_CAUSTICS_ENABLE", "REDSHIFT_RENDERER_GI_CAUSTICS_ENABLE",
+                       "REDSHIFT_RENDERER_PHOTON_CAUSTICS_ENABLE"]:
+            val = getattr(c4d, const, None)
+            if val is not None:
+                if vprs[val]:
+                    return True
+    except Exception:
+        pass
+    return False
+
 def _resolve_aov_type(name):
     """Resolve AOV name to c4d constant value"""
     aov_def = _AOV_DEFS.get(name)
@@ -991,7 +1008,7 @@ def get_rs_aovs(doc):
 
 def check_rs_aovs(doc, tier=None):
     """Check AOVs against a tier. tier=None uses Essentials."""
-    tier_list = tier or AOV_TIER_ESSENTIALS
+    tier_list = _build_tier_list(doc, tier or AOV_TIER_ESSENTIALS)
     result = {"available": REDSHIFT_AVAILABLE, "aovs": [], "missing": [], "tier": tier_list}
 
     aovs = get_rs_aovs(doc)
@@ -1003,6 +1020,14 @@ def check_rs_aovs(doc, tier=None):
     result["missing"] = [name for name in tier_list if name not in active_names]
     return result
 
+def _build_tier_list(doc, tier_list):
+    """Build effective tier list, adding Caustics if enabled in render settings"""
+    effective = list(tier_list)
+    if "Caustics" not in effective and _are_caustics_enabled(doc):
+        effective.append("Caustics")
+        safe_print("  Caustics enabled in render settings - adding AOV")
+    return effective
+
 def force_aov_tier(doc, tier_list):
     """Add missing AOVs from a tier to RS render settings, with proper bit depth"""
     if not REDSHIFT_AVAILABLE:
@@ -1011,6 +1036,8 @@ def force_aov_tier(doc, tier_list):
     vprs = _get_rs_videopost(doc)
     if not vprs:
         return 0, "Redshift VideoPost not found"
+
+    tier_list = _build_tier_list(doc, tier_list)
 
     try:
         existing_aovs = redshift.RendererGetAOVs(vprs)
