@@ -60,7 +60,7 @@ C4D-integrated output method. Less control than Direct Output.
 | 1001 | (AOV Name) | str | varies | Mirrors REDSHIFT_AOV_NAME |
 | 1002 | Multi-Pass Bit Depth | int | 2 (32-bit) | Multi-Pass only |
 | 1003 | (unknown) | int | 1 | |
-| 1004 | Denoise | int | 0=off | |
+| 1004 | Depth: Filter Type | int | 0=Full, 1=Min Depth, 2=Max Depth, 3=Center Sample | 3 for Nuke (no interpolation) |
 | 1005 | (unknown) | Vector | (1,1,1) | |
 | 1006 | Apply Color Processing | int | 1=on | Should be 0 for compositing |
 | 1007 | (unknown) | int | 0 | |
