@@ -948,9 +948,9 @@ AOV_TIER_ESSENTIALS = [
 ]
 
 # Tier 2: Full compositing control — relighting, volumes, raw passes
+# Volume AOVs added conditionally when RS Environment or RS Volume objects exist
 AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
     "Diffuse Filter", "World Position", "Normals", "Ambient Occlusion",
-    "Volume Lighting", "Volume Fog Tint", "Volume Fog Emission",
     "Reflection Filter", "Refractions Raw",
 ]
 
@@ -964,6 +964,22 @@ def _get_rs_videopost(doc):
         return None
 
 RS_CAUSTICS_ENABLED_ID = 9013  # "Enabled" checkbox in RS Caustics tab
+
+RS_ENVIRONMENT_ID = 1036757   # Redshift Environment object
+RS_VOLUME_ID = 1038655        # Redshift Volume object
+
+def _has_volumes_in_scene(doc):
+    """Check if scene contains RS Environment or RS Volume objects"""
+    first = doc.GetFirstObject()
+    if not first:
+        return False
+    for obj in _iter_objs(first, MAX_OBJECTS_PER_CHECK):
+        if not obj:
+            continue
+        obj_type = obj.GetType()
+        if obj_type == RS_ENVIRONMENT_ID or obj_type == RS_VOLUME_ID:
+            return True
+    return False
 
 def _are_caustics_enabled(doc):
     """Check if caustics are enabled in RS render settings"""
@@ -1023,11 +1039,14 @@ def check_rs_aovs(doc, tier=None):
     return result
 
 def _build_tier_list(doc, tier_list):
-    """Build effective tier list, adding Caustics if enabled in render settings"""
+    """Build effective tier list, adding conditional AOVs based on scene content"""
     effective = list(tier_list)
     if "Caustics" not in effective and _are_caustics_enabled(doc):
         effective.append("Caustics")
-        safe_print("  Caustics enabled in render settings - adding AOV")
+        safe_print("  Caustics enabled - adding AOV")
+    if "Volume Lighting" not in effective and _has_volumes_in_scene(doc):
+        effective.extend(["Volume Lighting", "Volume Fog Tint", "Volume Fog Emission"])
+        safe_print("  Volumetric objects found - adding Volume AOVs")
     return effective
 
 def force_aov_tier(doc, tier_list):
