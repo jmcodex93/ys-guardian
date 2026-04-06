@@ -916,7 +916,9 @@ def get_scene_stats(doc):
 # compression: "dwaa" = DWAA lossy (beauty), "zip" = ZIP lossless (utility)
 # Direct Output IDs: 6003=format+depth, 6001=data_type, 6004=compression, 6007=DWA level
 _AOV_DEFS = {
-    # Beauty rebuild components (RGBA, DWAA for perceptually lossless compression)
+    # Beauty (reference pass for rebuild verification)
+    "Beauty":               (["REDSHIFT_AOV_TYPE_BEAUTY", "REDSHIFT_AOV_TYPE_MAIN"], 16, "rgba", "dwab"),
+    # Beauty rebuild components (RGBA, DWAB for perceptually lossless compression)
     "Diffuse Lighting":     (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING"], 16, "rgba", "dwab"),
     "GI":                   (["REDSHIFT_AOV_TYPE_GI", "REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION", "REDSHIFT_AOV_TYPE_INDIRECT_DIFFUSE", "REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16, "rgba", "dwab"),
     "Specular Lighting":    (["REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING"], 16, "rgba", "dwab"),
@@ -948,6 +950,7 @@ _AOV_DEFS = {
 # Tier 1: Beauty rebuild + essential utility
 # Beauty = Diffuse + GI + Specular + Reflections + SSS + Refractions + Emission (+ Caustics if enabled)
 AOV_TIER_ESSENTIALS = [
+    "Beauty",
     "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
     "SSS", "Refractions", "Emission",
     "Depth", "Motion Vectors", "Cryptomatte",
