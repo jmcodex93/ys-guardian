@@ -1089,16 +1089,13 @@ def force_aov_tier(doc, tier_list):
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_NAME, name)
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_ENABLED, True)
 
-                # Set bit depth: 0=8bit, 1=16bit half, 2=32bit float
-                depth_val = 2 if bit_depth == 32 else 1
-                try:
-                    new_aov.SetParameter(c4d.REDSHIFT_AOV_BITS_PER_CHANNEL, depth_val)
-                except Exception:
-                    pass
-
-                # Direct Output (ID 6001) ON, Multi-Pass (ID 5000) OFF
+                # Direct Output ON, Multi-Pass OFF
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
-                new_aov.SetParameter(6001, True)  # Direct Output > Enabled
+                new_aov.SetParameter(5001, True)   # Direct Output > Enabled
+
+                # Bit depth for Direct Output (6004): 0=8bit, 1=16bit half, 2=32bit float
+                depth_val = 2 if bit_depth == 32 else 1
+                new_aov.SetParameter(6004, depth_val)
 
                 new_aovs.append(new_aov)
                 added += 1
