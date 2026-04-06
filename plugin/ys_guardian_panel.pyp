@@ -939,6 +939,11 @@ AOV_TIER_PRODUCTION = AOV_TIER_ESSENTIALS + [
     "Normals", "Ambient Occlusion",
 ]
 
+AOV_TIER_HERO = AOV_TIER_PRODUCTION + [
+    "Diffuse Lighting Raw", "Reflection Filter", "Volume Lighting",
+    "Shadows", "Bump Normals", "Caustics",
+]
+
 def _get_rs_videopost(doc):
     if not REDSHIFT_AVAILABLE:
         return None
@@ -1556,6 +1561,7 @@ class G:
     BTN_INFO_AOVS = 1155
     BTN_FORCE_ESSENTIALS = 1156
     BTN_FORCE_PRODUCTION = 1157
+    BTN_FORCE_HERO = 1158
     BTN_SET_SNAPSHOT_DIR = 1160
     LABEL_SNAPSHOT_DIR = 1161
     BTN_GITHUB = 1306
@@ -1848,10 +1854,11 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(79, c4d.BFH_SCALEFIT, 1, 0, "Redshift AOVs")
         self.GroupBorder(c4d.BORDER_WITH_TITLE_BOLD)
         self.GroupBorderSpace(4, 2, 4, 2)
-        self.GroupBegin(80, c4d.BFH_SCALEFIT, 3, 0)
+        self.GroupBegin(80, c4d.BFH_SCALEFIT, 4, 0)
         self.AddButton(G.BTN_INFO_AOVS, c4d.BFH_SCALEFIT, 0, 0, "Show AOVs")
         self.AddButton(G.BTN_FORCE_ESSENTIALS, c4d.BFH_SCALEFIT, 0, 0, "Essentials")
         self.AddButton(G.BTN_FORCE_PRODUCTION, c4d.BFH_SCALEFIT, 0, 0, "Production")
+        self.AddButton(G.BTN_FORCE_HERO, c4d.BFH_SCALEFIT, 0, 0, "Hero Shot")
         self.GroupEnd()
         self.GroupEnd()
 
@@ -2007,9 +2014,10 @@ class YSPanel(gui.GeDialog):
                     status = "ON" if aov.get("enabled") else "OFF"
                     msg += f"  [{status}] {aov['name']}\n"
 
-                # Check against both tiers
+                # Check against all tiers
                 ess = check_rs_aovs(doc, AOV_TIER_ESSENTIALS)
                 prod = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
+                hero = check_rs_aovs(doc, AOV_TIER_HERO)
 
                 if ess["missing"]:
                     msg += f"\nMISSING ESSENTIALS ({len(ess['missing'])}):\n"
@@ -2022,8 +2030,18 @@ class YSPanel(gui.GeDialog):
                     for n in prod_only:
                         msg += f"  - {n}\n"
 
-                if not ess["missing"] and not prod_only:
-                    msg += "\nAll production AOVs present."
+                hero_only = [n for n in hero["missing"] if n not in prod["missing"]]
+                if hero_only:
+                    msg += f"\nMISSING HERO SHOT ({len(hero_only)}):\n"
+                    for n in hero_only:
+                        msg += f"  ~ {n}\n"
+
+                if not hero["missing"]:
+                    msg += "\nAll Hero Shot AOVs present."
+                elif not prod["missing"]:
+                    msg += "\nAll Production AOVs present."
+                elif not ess["missing"]:
+                    msg += "\nAll Essentials AOVs present."
 
                 c4d.gui.MessageDialog(msg)
 
@@ -2032,6 +2050,9 @@ class YSPanel(gui.GeDialog):
 
         elif cid == G.BTN_FORCE_PRODUCTION:
             self._force_aov_tier(doc, AOV_TIER_PRODUCTION, "Production")
+
+        elif cid == G.BTN_FORCE_HERO:
+            self._force_aov_tier(doc, AOV_TIER_HERO, "Hero Shot")
 
         elif cid == G.BTN_SET_SNAPSHOT_DIR:
             new_dir = c4d.storage.LoadDialog(title="Select RS Snapshot Folder", flags=c4d.FILESELECT_DIRECTORY)
