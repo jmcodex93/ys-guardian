@@ -907,7 +907,7 @@ def get_scene_stats(doc):
 # bit_depth: 16 = half-float, 32 = full float
 _AOV_DEFS = {
     "Diffuse Lighting":   (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING"], 16),
-    "GI":                 (["REDSHIFT_AOV_TYPE_GI"], 16),
+    "GI":                 (["REDSHIFT_AOV_TYPE_GI", "REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION", "REDSHIFT_AOV_TYPE_INDIRECT_DIFFUSE", "REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16),
     "Specular Lighting":  (["REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING"], 16),
     "Reflections":        (["REDSHIFT_AOV_TYPE_REFLECTIONS"], 16),
     "Emission":           (["REDSHIFT_AOV_TYPE_EMISSION"], 16),
