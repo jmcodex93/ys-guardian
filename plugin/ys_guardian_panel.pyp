@@ -1992,8 +1992,8 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(20, c4d.BFH_SCALEFIT, 4, 0)
         self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
         self.AddStaticText(G.LABEL_RESOLUTION, c4d.BFH_LEFT, 100, 0, "", 0)
-        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Reset Preset")
-        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force 9:16")
+        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force 9:16")
+        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Reset All")
         self.GroupEnd()
 
         # AOVs config row
@@ -2124,15 +2124,10 @@ class YSPanel(gui.GeDialog):
                 self._apply_preset(doc, index_to_preset[selected_index])
 
         elif cid == G.BTN_FORCE_RENDER:
-            # Reset the selected preset from template
-            selected_index = self.GetInt32(G.PRESET_DROPDOWN)
-            index_to_preset = {0: "previz", 1: "pre_render", 2: "render", 3: "stills"}
-            if selected_index in index_to_preset:
-                self._active_preset = index_to_preset[selected_index]
-            self._force_render_settings(doc)
+            self._force_vertical(doc)
 
         elif cid == G.BTN_FORCE_ALL:
-            self._force_vertical(doc)
+            self._force_render_settings(doc)
 
         elif cid == G.ARTIST:
             # Artist name changed - save to global settings
@@ -2509,79 +2504,72 @@ class YSPanel(gui.GeDialog):
             return None
 
     def _force_render_settings(self, doc):
-        """Force apply render settings from template file to active preset"""
+        """Reset all 4 render presets from template file"""
         if not doc:
+            return
+
+        plugin_dir = os.path.dirname(__file__)
+        template_path = os.path.join(plugin_dir, "c4d", "new.c4d")
+
+        if not os.path.exists(template_path):
+            c4d.gui.MessageDialog(f"Template file not found!\n\nExpected at:\n{template_path}")
+            return
+
+        if not c4d.gui.QuestionDialog("Reset ALL render presets from template?\n\nThis replaces existing presets with standard settings."):
             return
 
         template_doc = None
         try:
-            # Get the active preset name
-            preset_name = self._active_preset
-
-            # Load the template document
-            plugin_dir = os.path.dirname(__file__)
-            template_path = os.path.join(plugin_dir, "c4d", "new.c4d")
-
-            if not os.path.exists(template_path):
-                c4d.gui.MessageDialog(f"Template file not found!\n\n"
-                                     f"Expected at:\n{template_path}")
-                return
-
             template_doc = c4d.documents.LoadDocument(template_path, c4d.SCENEFILTER_NONE)
             if not template_doc:
-                c4d.gui.MessageDialog(f"Failed to load template file!\n\n{template_path}")
+                c4d.gui.MessageDialog("Failed to load template file")
                 return
 
-            # Find the matching preset in the template
+            # Clone all presets from template
+            standard_presets = ["previz", "pre_render", "render", "stills"]
+            cloned = []
             template_rd = template_doc.GetFirstRenderData()
-            normalized_target = normalize_preset_name(preset_name)
-            source_rd = None
-
             while template_rd:
-                template_name = normalize_preset_name(template_rd.GetName() or "")
-                if template_name == normalized_target:
-                    source_rd = template_rd
-                    break
+                name = normalize_preset_name(template_rd.GetName() or "")
+                if name in standard_presets:
+                    clone = template_rd.GetClone(c4d.COPYFLAGS_NONE)
+                    cloned.append(clone)
                 template_rd = template_rd.GetNext()
 
-            if not source_rd:
-                c4d.gui.MessageDialog(f"Preset '{preset_name}' not found in template file!\n\n"
-                                     f"Template should contain: Previz, Pre-Render, Render, Stills")
-                return
-
-            # Clone source BEFORE killing template doc
-            new_rd = source_rd.GetClone(c4d.COPYFLAGS_NONE)
-            new_rd.SetName(preset_name)
-
-            # Kill template doc now (source_rd dies here)
+            # Kill template before modifying scene
             c4d.documents.KillDocument(template_doc)
             template_doc = None
 
-            # Remove existing preset with same name if it exists
+            if not cloned:
+                c4d.gui.MessageDialog("No standard presets found in template")
+                return
+
+            # Remove existing presets
             rd = doc.GetFirstRenderData()
             while rd:
                 next_rd = rd.GetNext()
-                if normalize_preset_name(rd.GetName() or "") == normalized_target:
-                    rd.Remove()
+                rd.Remove()
                 rd = next_rd
 
-            # Insert the cloned preset
-            doc.InsertRenderData(new_rd)
-            doc.SetActiveRenderData(new_rd)
+            # Insert cloned presets
+            for clone in cloned:
+                doc.InsertRenderData(clone)
+
+            doc.SetActiveRenderData(cloned[0])
+            self._active_preset = "previz"
+            self._update_preset_buttons()
             check_cache.clear()
             c4d.EventAdd()
 
-            safe_print(f"Reset preset '{preset_name}' from template")
-            c4d.gui.MessageDialog(f"Reset '{preset_name}' preset\n\n"
-                                 f"Resolution: {new_rd[c4d.RDATA_XRES]}x{new_rd[c4d.RDATA_YRES]}\n"
-                                 f"Frame Rate: {new_rd[c4d.RDATA_FRAMERATE]} fps\n"
-                                 f"Output Path: {new_rd[c4d.RDATA_PATH]}")
+            safe_print(f"Reset {len(cloned)} presets from template")
+            c4d.gui.MessageDialog(f"Reset {len(cloned)} render presets from template\n\n"
+                                 f"Active: {cloned[0].GetName()}\n"
+                                 f"Resolution: {int(cloned[0][c4d.RDATA_XRES])}x{int(cloned[0][c4d.RDATA_YRES])}")
 
         except Exception as e:
-            safe_print(f"Error forcing render settings: {e}")
-            c4d.gui.MessageDialog(f"Error applying template settings: {e}")
+            safe_print(f"Error resetting presets: {e}")
+            c4d.gui.MessageDialog(f"Error: {e}")
         finally:
-            # Clean up template document
             if template_doc:
                 c4d.documents.KillDocument(template_doc)
 
