@@ -1993,7 +1993,7 @@ class YSPanel(gui.GeDialog):
         self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
         self.AddStaticText(G.LABEL_RESOLUTION, c4d.BFH_LEFT, 100, 0, "", 0)
         self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Reset Preset")
-        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Reset All")
+        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force 9:16")
         self.GroupEnd()
 
         # AOVs config row
@@ -2123,13 +2123,16 @@ class YSPanel(gui.GeDialog):
             if selected_index in index_to_preset:
                 self._apply_preset(doc, index_to_preset[selected_index])
 
-        # Handle Force button (applies template settings to current preset)
         elif cid == G.BTN_FORCE_RENDER:
+            # Reset the selected preset from template
+            selected_index = self.GetInt32(G.PRESET_DROPDOWN)
+            index_to_preset = {0: "previz", 1: "pre_render", 2: "render", 3: "stills"}
+            if selected_index in index_to_preset:
+                self._active_preset = index_to_preset[selected_index]
             self._force_render_settings(doc)
 
-        # Handle Force All button (applies template to all 4 presets + deletes others)
         elif cid == G.BTN_FORCE_ALL:
-            self._force_all_presets(doc)
+            self._force_vertical(doc)
 
         elif cid == G.ARTIST:
             # Artist name changed - save to global settings
@@ -2582,72 +2585,48 @@ class YSPanel(gui.GeDialog):
             if template_doc:
                 c4d.documents.KillDocument(template_doc)
 
-    def _force_all_presets(self, doc):
-        """Force all 4 render presets from template file and delete others"""
+    def _force_vertical(self, doc):
+        """Force active render preset to 9:16 vertical aspect ratio"""
         if not doc:
             return
 
         try:
-            # Define the 4 standard presets
-            standard_presets = ["previz", "pre_render", "render", "stills"]
+            rd = doc.GetActiveRenderData()
+            if not rd:
+                c4d.gui.MessageDialog("No active render preset")
+                return
 
-            # Delete all existing render data first
-            rd = doc.GetFirstRenderData()
-            deleted_count = 0
-            while rd:
-                next_rd = rd.GetNext()
-                rd.Remove()
-                deleted_count += 1
-                rd = next_rd
+            # Get current width to calculate vertical equivalent
+            current_w = int(rd[c4d.RDATA_XRES])
 
-            safe_print(f"Deleted {deleted_count} existing render presets")
-
-            # Load and insert all 4 standard presets from template
-            inserted_count = 0
-            first_rd = None
-
-            for preset_name in standard_presets:
-                # Load template render data for this preset
-                template_rd = self._load_template_render_data(preset_name)
-                if template_rd:
-                    # Ensure proper name
-                    template_rd.SetName(preset_name)
-                    # Insert into document
-                    doc.InsertRenderData(template_rd)
-                    inserted_count += 1
-                    if first_rd is None:
-                        first_rd = template_rd
-                    safe_print(f"Inserted '{preset_name}' preset from template")
-                else:
-                    safe_print(f"Warning: Could not load '{preset_name}' from template")
-
-            # Set the first preset (previz) as active
-            if first_rd:
-                doc.SetActiveRenderData(first_rd)
-                self._active_preset = "previz"
-                self._update_preset_buttons()
-
-            check_cache.clear()  # Clear cache to update compliance check immediately
-            c4d.EventAdd()
-
-            if inserted_count > 0:
-                c4d.gui.MessageDialog(f"Force All Presets Complete!\n\n"
-                                     f"Deleted {deleted_count} old presets\n"
-                                     f"Inserted {inserted_count} standard presets from template:\n"
-                                     f"• Previz\n"
-                                     f"• Pre-Render\n"
-                                     f"• Render\n"
-                                     f"• Stills\n\n"
-                                     f"Active preset: Previz")
+            # Standard 9:16 resolutions based on current width tier
+            if current_w >= 3840:
+                w, h = 2160, 3840
+            elif current_w >= 1920:
+                w, h = 1080, 1920
+            elif current_w >= 1280:
+                w, h = 720, 1280
             else:
-                plugin_dir = os.path.dirname(__file__)
-                template_path = os.path.join(plugin_dir, "c4d", "new.c4d")
-                c4d.gui.MessageDialog(f"Failed to load presets from template file.\n\n"
-                                     f"Make sure the template file exists at:\n{template_path}")
+                w, h = 720, 1280
+
+            old_w = int(rd[c4d.RDATA_XRES])
+            old_h = int(rd[c4d.RDATA_YRES])
+
+            rd[c4d.RDATA_XRES] = w
+            rd[c4d.RDATA_YRES] = h
+
+            check_cache.clear()
+            c4d.EventAdd()
+            self._update_preset_buttons()
+
+            safe_print(f"Forced 9:16: {old_w}x{old_h} → {w}x{h}")
+            c4d.gui.MessageDialog(f"Forced 9:16 Vertical\n\n"
+                                 f"{old_w}x{old_h} → {w}x{h}\n"
+                                 f"Preset: {rd.GetName()}")
 
         except Exception as e:
-            safe_print(f"Error forcing all presets: {e}")
-            c4d.gui.MessageDialog(f"Error forcing all presets: {e}")
+            safe_print(f"Error forcing vertical: {e}")
+            c4d.gui.MessageDialog(f"Error: {e}")
 
     def _hierarchy_to_layers(self, doc):
         """Link main project nulls and their children to layers with matching names"""
