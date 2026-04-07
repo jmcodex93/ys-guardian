@@ -1657,8 +1657,8 @@ class G:
     # Render preset
     PRESET_DROPDOWN = 1002
     LABEL_RESOLUTION = 1170
-    BTN_FORCE_RENDER = 1204
-    BTN_FORCE_ALL = 1206
+    BTN_FORCE_VERTICAL = 1204  # Force 9:16
+    BTN_RESET_ALL = 1206      # Reset all presets from template
 
     # Quick Actions
     BTN_CREATE_HIERARCHY = 1126
@@ -1992,8 +1992,8 @@ class YSPanel(gui.GeDialog):
         self.GroupBegin(20, c4d.BFH_SCALEFIT, 4, 0)
         self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
         self.AddStaticText(G.LABEL_RESOLUTION, c4d.BFH_LEFT, 100, 0, "", 0)
-        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force 9:16")
-        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Reset All")
+        self.AddButton(G.BTN_RESET_ALL, c4d.BFH_SCALEFIT, 0, 0, "Reset All")
+        self.AddButton(G.BTN_FORCE_VERTICAL, c4d.BFH_SCALEFIT, 0, 0, "Force 9:16")
         self.GroupEnd()
 
         # AOVs config row
@@ -2123,10 +2123,10 @@ class YSPanel(gui.GeDialog):
             if selected_index in index_to_preset:
                 self._apply_preset(doc, index_to_preset[selected_index])
 
-        elif cid == G.BTN_FORCE_RENDER:
+        elif cid == G.BTN_FORCE_VERTICAL:
             self._force_vertical(doc)
 
-        elif cid == G.BTN_FORCE_ALL:
+        elif cid == G.BTN_RESET_ALL:
             self._force_render_settings(doc)
 
         elif cid == G.ARTIST:
@@ -2464,53 +2464,15 @@ class YSPanel(gui.GeDialog):
             safe_print(f"Error merging camera file {filename}: {e}")
             c4d.gui.MessageDialog(f"Error loading camera setup: {e}")
 
-    def _load_template_render_data(self, preset_name):
-        """Load render data from template C4D file for the specified preset"""
-        try:
-            # Get path to the template C4D file (in plugin's c4d folder)
-            plugin_dir = os.path.dirname(__file__)
-            template_path = os.path.join(plugin_dir, "c4d", "new.c4d")
-
-            # Check if template file exists
-            if not os.path.exists(template_path):
-                safe_print(f"Template file not found: {template_path}")
-                return None
-
-            # Load the template document
-            template_doc = c4d.documents.LoadDocument(template_path, c4d.SCENEFILTER_NONE)
-            if not template_doc:
-                safe_print(f"Failed to load template document: {template_path}")
-                return None
-
-            # Find the render data matching the preset name
-            template_rd = template_doc.GetFirstRenderData()
-            normalized_target = normalize_preset_name(preset_name)
-
-            while template_rd:
-                template_name = normalize_preset_name(template_rd.GetName() or "")
-                if template_name == normalized_target:
-                    # Clone the render data
-                    cloned_rd = template_rd.GetClone(c4d.COPYFLAGS_NONE)
-                    c4d.documents.KillDocument(template_doc)  # Clean up template doc
-                    return cloned_rd
-                template_rd = template_rd.GetNext()
-
-            c4d.documents.KillDocument(template_doc)  # Clean up template doc
-            safe_print(f"Preset '{preset_name}' not found in template file")
-            return None
-
-        except Exception as e:
-            safe_print(f"Error loading template render data: {e}")
-            return None
+    def _get_template_path(self):
+        return os.path.join(os.path.dirname(__file__), "c4d", "new.c4d")
 
     def _force_render_settings(self, doc):
         """Reset all 4 render presets from template file"""
         if not doc:
             return
 
-        plugin_dir = os.path.dirname(__file__)
-        template_path = os.path.join(plugin_dir, "c4d", "new.c4d")
-
+        template_path = self._get_template_path()
         if not os.path.exists(template_path):
             c4d.gui.MessageDialog(f"Template file not found!\n\nExpected at:\n{template_path}")
             return
