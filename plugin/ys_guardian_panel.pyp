@@ -955,13 +955,6 @@ _AOV_DEFS = {
 
 # AOVs that have the Apply Color Processing option (lighting/shading components)
 # These should have it OFF for compositing (linear data for correct beauty rebuild)
-# AOVs that have Apply Color Processing — set to OFF for linear compositing
-# Exception: Beauty stays ON (visual reference for the compositor)
-_AOVS_COLOR_PROCESSING_OFF = {
-    "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
-    "SSS", "Refractions", "Emission", "Caustics", "Volume Lighting",
-    "Diffuse Lighting Raw", "Refractions Raw",
-}
 
 # Compression lookup (defined once, not per-iteration)
 _COMP_MAP = {
@@ -1154,10 +1147,6 @@ def force_aov_tier(doc, tier_list):
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_COMPRESSION, comp_const)
                 if compression in ("dwab", "dwaa"):
                     new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_EXR_DWA_COMPRESSION, 45.0)
-
-                # Disable Apply Color Processing for linear compositing
-                if name in _AOVS_COLOR_PROCESSING_OFF:
-                    new_aov.SetParameter(_APPLY_COLOR_PROCESSING, 0)
 
                 # Compositor-specific settings for utility AOVs
                 if name == "Depth":
