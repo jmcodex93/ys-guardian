@@ -1418,6 +1418,176 @@ def export_qc_report(doc, results, artist_name):
 
     return save_path
 
+# ---------------- Scene Collector ----------------
+def collect_scene(doc, artist_name):
+    """Pre-flight QC + Save Project with Assets + Verify + Manifest"""
+    from datetime import datetime
+
+    if not doc:
+        c4d.gui.MessageDialog("No active document!")
+        return
+
+    doc_path = doc.GetDocumentPath()
+    if not doc_path:
+        c4d.gui.MessageDialog("Please save the scene first before collecting.")
+        return
+
+    # ── Phase 1: Pre-flight QC ──
+    safe_print("Scene Collector: Running pre-flight checks...")
+
+    issues = []
+    lights = check_lights(doc)
+    if lights:
+        issues.append(f"  {len(lights)} lights outside group")
+    vis = check_visibility_traps(doc)
+    if vis:
+        issues.append(f"  {len(vis)} visibility mismatches")
+    textures = check_textures_unified(doc)
+    if textures:
+        issues.append(f"  {len(textures)} asset path issues")
+    unused = check_unused_materials(doc)
+    if unused:
+        issues.append(f"  {len(unused)} unused materials")
+    names = check_default_names(doc)
+    if names:
+        issues.append(f"  {len(names)} objects with default names")
+    takes = check_takes(doc)
+    if takes:
+        issues.append(f"  {len(takes)} take issues")
+    output = check_output_paths(doc)
+    if output:
+        issues.append(f"  {len(output)} output path issues")
+
+    # Show pre-flight results
+    if issues:
+        msg = f"PRE-FLIGHT: {len(issues)} issue(s) found\n\n"
+        msg += "\n".join(issues)
+        msg += "\n\nFix issues before collecting?"
+        msg += "\n\nYes = Fix auto-fixable issues, then collect"
+        msg += "\nNo = Collect anyway"
+
+        # 3-way: fix + collect, collect anyway, cancel
+        result = c4d.gui.MessageDialog(msg, c4d.GEMB_YESNOCANCEL)
+        if result == c4d.GEMB_R_CANCEL:
+            safe_print("Scene Collector: Cancelled")
+            return
+        if result == c4d.GEMB_R_YES:
+            # Auto-fix what we can
+            fixed = 0
+            if lights:
+                fixed += fix_lights(doc, lights)
+            if unused:
+                fixed += fix_unused_materials(doc, unused)
+            cam_bad = check_camera_shift(doc)
+            if cam_bad:
+                fixed += fix_camera_shift(doc, cam_bad)
+            safe_print(f"Scene Collector: Auto-fixed {fixed} issues")
+    else:
+        if not c4d.gui.QuestionDialog("Pre-flight: All checks passed!\n\nProceed with Save Project with Assets?"):
+            return
+
+    # ── Phase 2: Collect via C4D native ──
+    safe_print("Scene Collector: Running Save Project with Assets...")
+
+    target_dir = c4d.storage.LoadDialog(
+        title="Select folder to collect project into",
+        flags=c4d.FILESELECT_DIRECTORY
+    )
+    if not target_dir:
+        safe_print("Scene Collector: No folder selected")
+        return
+
+    assets = []
+    missing_assets = []
+
+    try:
+        flags = (c4d.SAVEPROJECT_ASSETS |
+                 c4d.SAVEPROJECT_SCENEFILE |
+                 c4d.SAVEPROJECT_PROGRESSALLOWED |
+                 c4d.SAVEPROJECT_DONTFAILONMISSINGASSETS)
+
+        result = c4d.documents.SaveProject(doc, flags, target_dir, assets, missing_assets)
+
+        if not result:
+            c4d.gui.MessageDialog("Save Project failed!\n\nCheck console for details.")
+            safe_print("Scene Collector: SaveProject returned False")
+            return
+
+    except Exception as e:
+        c4d.gui.MessageDialog(f"Save Project error:\n{e}")
+        safe_print(f"Scene Collector error: {e}")
+        return
+
+    safe_print(f"Scene Collector: Collected {len(assets)} assets")
+    if missing_assets:
+        safe_print(f"Scene Collector: {len(missing_assets)} missing assets!")
+
+    # ── Phase 3: Generate manifest ──
+    safe_print("Scene Collector: Generating manifest...")
+
+    manifest = {
+        "ys_guardian_manifest": True,
+        "version": PLUGIN_NAME,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "scene": doc.GetDocumentName() or "untitled",
+        "artist": artist_name or "",
+        "shot_id": "",
+        "collected_to": target_dir,
+        "assets_collected": len(assets),
+        "assets_missing": len(missing_assets),
+        "missing_list": [],
+        "pre_flight_issues": issues,
+    }
+
+    # Get shot ID
+    try:
+        td = doc.GetTakeData()
+        if td:
+            main_take = td.GetMainTake()
+            if main_take:
+                manifest["shot_id"] = main_take.GetName() or ""
+    except Exception:
+        pass
+
+    # Log missing assets
+    for m in missing_assets:
+        try:
+            manifest["missing_list"].append(str(m))
+        except Exception:
+            pass
+
+    # Calculate total size
+    total_size = 0
+    for a in assets:
+        try:
+            filepath = str(a.get("filename", ""))
+            if filepath and os.path.exists(filepath):
+                total_size += os.path.getsize(filepath)
+        except Exception:
+            pass
+    manifest["total_size_mb"] = round(total_size / (1024 * 1024), 1)
+
+    # Save manifest
+    manifest_path = os.path.join(target_dir, "ys_guardian_manifest.json")
+    try:
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+        safe_print(f"Scene Collector: Manifest saved to {manifest_path}")
+    except Exception as e:
+        safe_print(f"Scene Collector: Could not save manifest: {e}")
+
+    # ── Summary ──
+    msg = f"Scene Collected!\n\n"
+    msg += f"Location: {target_dir}\n"
+    msg += f"Assets: {len(assets)} collected"
+    if missing_assets:
+        msg += f"\nMissing: {len(missing_assets)} (check manifest)"
+    msg += f"\nSize: {manifest['total_size_mb']} MB"
+    msg += f"\nManifest: ys_guardian_manifest.json"
+
+    c4d.gui.MessageDialog(msg)
+    safe_print("Scene Collector: Complete")
+
 # ---------------- UI StatusArea ----------------
 # Pre-allocated colors to avoid GC pressure in DrawMsg
 _COL_GREEN = c4d.Vector(0.3, 1, 0.3)
@@ -1739,6 +1909,7 @@ class G:
     # Output
     BTN_OPEN_FOLDER = 1010
     BTN_SNAPSHOT = 1009
+    BTN_COLLECT_SCENE = 1171
     COMP_TARGET = 1154
     CHK_MULTIPART = 1153
     BTN_INFO_TAKES = 1152
@@ -2099,10 +2270,11 @@ class YSPanel(gui.GeDialog):
         self.GroupEnd()
 
         # Action buttons
-        self.GroupBegin(60, c4d.BFH_SCALEFIT, 3, 0)
+        self.GroupBegin(60, c4d.BFH_SCALEFIT, 4, 0)
         self.AddButton(G.BTN_OPEN_FOLDER, c4d.BFH_SCALEFIT, 0, 0, "Open Folder")
         self.AddButton(G.BTN_SNAPSHOT, c4d.BFH_SCALEFIT, 0, 0, "Save Still")
         self.AddButton(G.BTN_EXPORT_QC, c4d.BFH_SCALEFIT, 0, 0, "Export QC")
+        self.AddButton(G.BTN_COLLECT_SCENE, c4d.BFH_SCALEFIT, 0, 0, "Collect Scene")
         self.GroupEnd()
 
         # Footer
@@ -2477,6 +2649,9 @@ class YSPanel(gui.GeDialog):
             if save_path:
                 safe_print(f"QC report saved to: {save_path}")
                 c4d.gui.MessageDialog(f"QC Report saved!\n\n{save_path}")
+
+        elif cid == G.BTN_COLLECT_SCENE:
+            collect_scene(doc, self._artist_name)
 
         return True
 
