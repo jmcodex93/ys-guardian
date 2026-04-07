@@ -2546,37 +2546,33 @@ class YSPanel(gui.GeDialog):
                                      f"Template should contain: Previz, Pre-Render, Render, Stills")
                 return
 
-            # Find or create render data with this name in the current document
+            # Clone source BEFORE killing template doc
+            new_rd = source_rd.GetClone(c4d.COPYFLAGS_NONE)
+            new_rd.SetName(preset_name)
+
+            # Kill template doc now (source_rd dies here)
+            c4d.documents.KillDocument(template_doc)
+            template_doc = None
+
+            # Remove existing preset with same name if it exists
             rd = doc.GetFirstRenderData()
-            target_rd = None
-
-            # Search for existing preset (using normalized comparison)
             while rd:
-                if normalize_preset_name(rd.GetName() or "") == normalize_preset_name(preset_name):
-                    target_rd = rd
-                    break
-                rd = rd.GetNext()
+                next_rd = rd.GetNext()
+                if normalize_preset_name(rd.GetName() or "") == normalized_target:
+                    rd.Remove()
+                rd = next_rd
 
-            if not target_rd:
-                # Create new render data if not found
-                target_rd = c4d.documents.RenderData()
-                target_rd.SetName(preset_name)
-                doc.InsertRenderData(target_rd)
-                safe_print(f"Created new render preset: {preset_name}")
-
-            # Copy all settings from template to target (while template doc is still alive)
-            source_rd.CopyTo(target_rd, c4d.COPYFLAGS_NONE)
-
-            # Set as active
-            doc.SetActiveRenderData(target_rd)
-            check_cache.clear()  # Clear cache to update compliance check immediately
+            # Insert the cloned preset
+            doc.InsertRenderData(new_rd)
+            doc.SetActiveRenderData(new_rd)
+            check_cache.clear()
             c4d.EventAdd()
 
-            safe_print(f"Applied template settings for '{preset_name}' preset")
-            c4d.gui.MessageDialog(f"Applied template settings for '{preset_name}' preset\n\n"
-                                 f"Resolution: {target_rd[c4d.RDATA_XRES]}x{target_rd[c4d.RDATA_YRES]}\n"
-                                 f"Frame Rate: {target_rd[c4d.RDATA_FRAMERATE]} fps\n"
-                                 f"Output Path: {target_rd[c4d.RDATA_PATH]}")
+            safe_print(f"Reset preset '{preset_name}' from template")
+            c4d.gui.MessageDialog(f"Reset '{preset_name}' preset\n\n"
+                                 f"Resolution: {new_rd[c4d.RDATA_XRES]}x{new_rd[c4d.RDATA_YRES]}\n"
+                                 f"Frame Rate: {new_rd[c4d.RDATA_FRAMERATE]} fps\n"
+                                 f"Output Path: {new_rd[c4d.RDATA_PATH]}")
 
         except Exception as e:
             safe_print(f"Error forcing render settings: {e}")
