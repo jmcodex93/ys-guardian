@@ -918,6 +918,7 @@ _MV_RAW_VECTORS = 1008         # 0=off, 1=on
 _MV_NO_CLAMP = 1009            # 0=off, 1=on
 _MV_MAX_MOTION = 1010          # pixels (int)
 _MV_FILTERING = 1013           # 0=off, 1=on
+_APPLY_COLOR_PROCESSING = 1006 # 0=off, 1=on (default ON — should be OFF for compositing)
 
 # AOV definitions: (const_candidates, bit_depth, data_type, compression)
 _AOV_DEFS = {
@@ -950,6 +951,14 @@ _AOV_DEFS = {
     # Utility passes (RGB, PIZ lossless, 16-bit half)
     "Normals":              (["REDSHIFT_AOV_TYPE_NORMALS"], 16, "rgb", "piz"),
     "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16, "rgb", "piz"),
+}
+
+# AOVs that have the Apply Color Processing option (lighting/shading components)
+# These should have it OFF for compositing (linear data for correct beauty rebuild)
+_AOVS_WITH_COLOR_PROCESSING = {
+    "Beauty", "Diffuse Lighting", "GI", "Specular Lighting", "Reflections",
+    "SSS", "Refractions", "Emission", "Caustics", "Volume Lighting",
+    "Diffuse Lighting Raw", "Refractions Raw",
 }
 
 # Compression lookup (defined once, not per-iteration)
@@ -1143,6 +1152,10 @@ def force_aov_tier(doc, tier_list):
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_COMPRESSION, comp_const)
                 if compression in ("dwab", "dwaa"):
                     new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_EXR_DWA_COMPRESSION, 45.0)
+
+                # Disable Apply Color Processing for linear compositing
+                if name in _AOVS_WITH_COLOR_PROCESSING:
+                    new_aov.SetParameter(_APPLY_COLOR_PROCESSING, 0)
 
                 # Compositor-specific settings for utility AOVs
                 if name == "Depth":
