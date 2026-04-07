@@ -1182,6 +1182,59 @@ def force_aov_tier(doc, tier_list):
         safe_print(f"Error forcing AOVs: {e}")
         return 0, f"Error: {e}"
 
+# ---------------- take validation ----------------
+def check_takes(doc):
+    """Validate all takes have camera and output path configured"""
+    cached = check_cache.get(doc, "takes")
+    if cached is not None:
+        return cached
+
+    issues = []
+    try:
+        td = doc.GetTakeData()
+        if not td:
+            check_cache.set(doc, "takes", issues)
+            return issues
+
+        main_take = td.GetMainTake()
+        if not main_take:
+            check_cache.set(doc, "takes", issues)
+            return issues
+
+        # Iterate child takes (skip Main — it's not a renderable shot)
+        take = main_take.GetDown()
+        while take:
+            take_name = take.GetName() or "unnamed"
+
+            # Check camera
+            cam = take.GetCamera(td)
+            if not cam:
+                issues.append({"take": take_name, "issue": "No camera assigned"})
+
+            # Check render data output path
+            rd = take.GetRenderData(td)
+            if rd:
+                path = rd[c4d.RDATA_PATH] or ""
+                if not path.strip():
+                    issues.append({"take": take_name, "issue": "Empty output path"})
+                elif "$take" not in path:
+                    issues.append({"take": take_name, "issue": f"Output path missing $take token"})
+            else:
+                # No override — inherits from main, check main's path
+                main_rd = doc.GetActiveRenderData()
+                if main_rd:
+                    path = main_rd[c4d.RDATA_PATH] or ""
+                    if "$take" not in path:
+                        issues.append({"take": take_name, "issue": "Inherited path missing $take token"})
+
+            take = take.GetNext()
+
+    except Exception as e:
+        safe_print(f"Error checking takes: {e}")
+
+    check_cache.set(doc, "takes", issues)
+    return issues
+
 # ---------------- auto-fix functions ----------------
 def fix_lights(doc, lights_bad):
     """Move stray lights into a 'lights' group null"""
@@ -1321,6 +1374,7 @@ def export_qc_report(doc, results, artist_name):
     for key, label, count in [
         ("render_presets", "Non-standard presets", results.get("rdc_count", 0)),
         ("output_paths", "Output path issues", results.get("output_count", 0)),
+        ("takes", "Take configuration issues", len(results.get("takes_bad", []))),
     ]:
         report["checks"][key] = {
             "status": "PASS" if count == 0 else "FAIL",
@@ -1331,6 +1385,10 @@ def export_qc_report(doc, results, artist_name):
     if results.get("output_bad"):
         report["checks"]["output_paths"]["items"] = [
             f"[{i['preset']}] {i['issue']}" for i in results["output_bad"][:10]
+        ]
+    if results.get("takes_bad"):
+        report["checks"]["takes"]["items"] = [
+            f"[{t['take']}] {t['issue']}" for t in results["takes_bad"][:20]
         ]
 
     # Summary
@@ -1383,6 +1441,7 @@ _CHECK_DISPLAY = {
     "unused_mats": ("WARN", "All materials assigned", "{n} unused material(s)", None),
     "names":       ("WARN", "All objects named", "Default name '{first}'", "names_list"),
     "output":      ("FAIL", "Output paths configured", "{n} output path issue(s)", None),
+    "takes":       ("FAIL", "Takes configured", "{n} take issue(s)", None),
 }
 
 class StatusArea(gui.GeUserArea):
@@ -1429,7 +1488,8 @@ class StatusArea(gui.GeUserArea):
 
             for label, key in [("Lights","lights"), ("Visibility","vis"), ("Keyframes","keys"),
                                ("Cameras","cam"), ("Presets","rdc"), ("Assets","textures"),
-                               ("Materials","unused_mats"), ("Naming","names"), ("Output","output")]:
+                               ("Materials","unused_mats"), ("Naming","names"), ("Output","output"),
+                               ("Takes","takes")]:
                 if not self.show.get(key, False):
                     continue
 
@@ -1681,6 +1741,7 @@ class G:
     BTN_SNAPSHOT = 1009
     COMP_TARGET = 1154
     CHK_MULTIPART = 1153
+    BTN_INFO_TAKES = 1152
     BTN_INFO_AOVS = 1155
     BTN_FORCE_ESSENTIALS = 1156
     BTN_FORCE_PRODUCTION = 1157
@@ -1707,6 +1768,7 @@ class YSPanel(gui.GeDialog):
         self._unused_mats_bad = []
         self._names_bad = []
         self._output_bad = []
+        self._takes_bad = []
         self._scene_stats = {}
 
         # Cycling indices for one-by-one selection
@@ -1853,6 +1915,7 @@ class YSPanel(gui.GeDialog):
             unused_mats_bad = check_unused_materials(doc)
             names_bad = check_default_names(doc)
             output_bad = check_output_paths(doc)
+            takes_bad = check_takes(doc)
             scene_stats = get_scene_stats(doc)
 
             # Count issues
@@ -1865,6 +1928,7 @@ class YSPanel(gui.GeDialog):
             unused_mats_count = len(unused_mats_bad) if unused_mats_bad else 0
             names_count = len(names_bad) if names_bad else 0
             output_count = len(output_bad) if output_bad else 0
+            takes_count = len(takes_bad) if takes_bad else 0
 
             # Update StatusArea
             self.ua.set_state(
@@ -1881,6 +1945,7 @@ class YSPanel(gui.GeDialog):
                     names=names_count,
                     names_list=[_safe_name(o) for o in (names_bad[:10] if names_bad else [])],
                     output=output_count,
+                    takes=takes_count,
                 ),
                 self.ua.show,
             )
@@ -1901,6 +1966,7 @@ class YSPanel(gui.GeDialog):
             self._unused_mats_bad = unused_mats_bad
             self._names_bad = names_bad
             self._output_bad = output_bad
+            self._takes_bad = takes_bad
 
         except Exception as e:
             safe_print(f"Error during refresh: {e}")
@@ -1936,7 +2002,7 @@ class YSPanel(gui.GeDialog):
         self.AttachUserArea(self.ua, G.CANVAS)
 
         # Right: per-check Select + Fix buttons (2 columns, matched to StatusArea rows)
-        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 9)
+        self.GroupBegin(407, c4d.BFH_RIGHT|c4d.BFV_SCALEFIT, 2, 10)
         self.GroupBorderSpace(0, 3, 0, 3)
         self.GroupSpace(2, 3)
         # Row: LIGHTS
@@ -1965,6 +2031,9 @@ class YSPanel(gui.GeDialog):
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         # Row: OUTPUT
         self.AddButton(G.BTN_INFO_OUTPUT, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
+        # Row: TAKES
+        self.AddButton(G.BTN_INFO_TAKES, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 50, 0, "Info")
         self.AddStaticText(0, c4d.BFH_SCALEFIT|c4d.BFV_SCALEFIT, 35, 0, "", 0)
         self.GroupEnd()
 
@@ -2346,6 +2415,21 @@ class YSPanel(gui.GeDialog):
                 info_msg = "All output paths are properly configured."
             c4d.gui.MessageDialog(info_msg)
 
+        elif cid == G.BTN_INFO_TAKES:
+            if self._takes_bad:
+                info_msg = f"TAKE ISSUES: {len(self._takes_bad)}\n\n"
+                for i, t in enumerate(self._takes_bad[:20], 1):
+                    info_msg += f"{i}. [{t['take']}] {t['issue']}\n"
+            else:
+                # Check if there are any takes at all
+                td = doc.GetTakeData()
+                has_takes = td and td.GetMainTake() and td.GetMainTake().GetDown()
+                if has_takes:
+                    info_msg = "All takes properly configured."
+                else:
+                    info_msg = "No takes found (only Main Take)."
+            c4d.gui.MessageDialog(info_msg)
+
         # ── Auto-fix handlers ──
         elif cid == G.BTN_FIX_LIGHTS:
             if self._lights_bad:
@@ -2385,6 +2469,7 @@ class YSPanel(gui.GeDialog):
                 "unused_mats_bad": self._unused_mats_bad,
                 "names_bad": self._names_bad,
                 "output_bad": self._output_bad,
+                "takes_bad": self._takes_bad,
                 "output_count": len(self._output_bad) if self._output_bad else 0,
                 "scene_stats": self._scene_stats,
             }
