@@ -1809,7 +1809,7 @@ class YSPanel(gui.GeDialog):
         if normalized_preset in preset_to_index:
             self.SetInt32(G.PRESET_DROPDOWN, preset_to_index[normalized_preset])
 
-        # Update resolution label
+        # Update resolution label and aspect button
         doc = c4d.documents.GetActiveDocument()
         if doc:
             rd = doc.GetActiveRenderData()
@@ -1818,6 +1818,7 @@ class YSPanel(gui.GeDialog):
                     w = int(rd[c4d.RDATA_XRES])
                     h = int(rd[c4d.RDATA_YRES])
                     self.SetString(G.LABEL_RESOLUTION, f"{w}x{h}")
+                    self.SetString(G.BTN_FORCE_VERTICAL, "Force 16:9" if h > w else "Force 9:16")
                 except Exception:
                     pass
 
@@ -2124,7 +2125,7 @@ class YSPanel(gui.GeDialog):
                 self._apply_preset(doc, index_to_preset[selected_index])
 
         elif cid == G.BTN_FORCE_VERTICAL:
-            self._force_vertical(doc)
+            self._toggle_aspect(doc)
 
         elif cid == G.BTN_RESET_ALL:
             self._force_render_settings(doc)
@@ -2535,8 +2536,8 @@ class YSPanel(gui.GeDialog):
             if template_doc:
                 c4d.documents.KillDocument(template_doc)
 
-    def _force_vertical(self, doc):
-        """Force active render preset to 9:16 vertical aspect ratio"""
+    def _toggle_aspect(self, doc):
+        """Toggle between 16:9 and 9:16 aspect ratio"""
         if not doc:
             return
 
@@ -2546,21 +2547,26 @@ class YSPanel(gui.GeDialog):
                 c4d.gui.MessageDialog("No active render preset")
                 return
 
-            # Get current width to calculate vertical equivalent
-            current_w = int(rd[c4d.RDATA_XRES])
-
-            # Standard 9:16 resolutions based on current width tier
-            if current_w >= 3840:
-                w, h = 2160, 3840
-            elif current_w >= 1920:
-                w, h = 1080, 1920
-            elif current_w >= 1280:
-                w, h = 720, 1280
-            else:
-                w, h = 720, 1280
-
             old_w = int(rd[c4d.RDATA_XRES])
             old_h = int(rd[c4d.RDATA_YRES])
+            is_vertical = old_h > old_w
+
+            if is_vertical:
+                # Currently vertical → switch to horizontal 16:9
+                if old_h >= 3840:
+                    w, h = 3840, 2160
+                elif old_h >= 1920:
+                    w, h = 1920, 1080
+                else:
+                    w, h = 1280, 720
+            else:
+                # Currently horizontal → switch to vertical 9:16
+                if old_w >= 3840:
+                    w, h = 2160, 3840
+                elif old_w >= 1920:
+                    w, h = 1080, 1920
+                else:
+                    w, h = 720, 1280
 
             rd[c4d.RDATA_XRES] = w
             rd[c4d.RDATA_YRES] = h
@@ -2568,15 +2574,27 @@ class YSPanel(gui.GeDialog):
             check_cache.clear()
             c4d.EventAdd()
             self._update_preset_buttons()
+            self._update_aspect_button()
 
-            safe_print(f"Forced 9:16: {old_w}x{old_h} → {w}x{h}")
-            c4d.gui.MessageDialog(f"Forced 9:16 Vertical\n\n"
-                                 f"{old_w}x{old_h} → {w}x{h}\n"
-                                 f"Preset: {rd.GetName()}")
+            label = "16:9" if w > h else "9:16"
+            safe_print(f"Aspect: {old_w}x{old_h} → {w}x{h} ({label})")
 
         except Exception as e:
-            safe_print(f"Error forcing vertical: {e}")
-            c4d.gui.MessageDialog(f"Error: {e}")
+            safe_print(f"Error toggling aspect: {e}")
+
+    def _update_aspect_button(self):
+        """Update the aspect button label based on current render data"""
+        try:
+            doc = c4d.documents.GetActiveDocument()
+            if doc:
+                rd = doc.GetActiveRenderData()
+                if rd:
+                    w = int(rd[c4d.RDATA_XRES])
+                    h = int(rd[c4d.RDATA_YRES])
+                    is_vertical = h > w
+                    self.SetString(G.BTN_FORCE_VERTICAL, "Force 16:9" if is_vertical else "Force 9:16")
+        except Exception:
+            pass
 
     def _hierarchy_to_layers(self, doc):
         """Link main project nulls and their children to layers with matching names"""
