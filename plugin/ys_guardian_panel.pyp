@@ -910,17 +910,22 @@ def get_scene_stats(doc):
     return stats
 
 # ---------------- RS AOV management ----------------
+# Per-AOV option IDs (no named constants in c4d module — see RS_AOV_PARAM_IDS.md)
+_DEPTH_FILTER_TYPE = 1004      # 0=Full, 1=Min, 2=Max, 3=Center Sample
+_DEPTH_MODE = 1019             # 0=Z, 1=Z Normalized, 2=Z Normalized Inverted
+_DEPTH_CAMERA_NEARFAR = 1020   # 0=off, 1=on
+_MV_RAW_VECTORS = 1008         # 0=off, 1=on
+_MV_NO_CLAMP = 1009            # 0=off, 1=on
+_MV_MAX_MOTION = 1010          # pixels (int)
+_MV_FILTERING = 1013           # 0=off, 1=on
+
 # AOV definitions: (const_candidates, bit_depth, data_type, compression)
-# bit_depth: 16 = half-float, 32 = full float
-# data_type: "rgb" = RGB, "rgba" = RGBA
-# compression: "dwaa" = DWAA lossy (beauty), "zip" = ZIP lossless (utility)
-# Direct Output IDs: 6003=format+depth, 6001=data_type, 6004=compression, 6007=DWA level
 _AOV_DEFS = {
-    # Beauty (reference pass for rebuild verification)
+    # Beauty reference
     "Beauty":               (["REDSHIFT_AOV_TYPE_BEAUTY", "REDSHIFT_AOV_TYPE_MAIN"], 16, "rgba", "dwab"),
-    # Beauty rebuild components (RGBA, DWAB for perceptually lossless compression)
+    # Beauty rebuild components (RGBA, DWAB, 16-bit half)
     "Diffuse Lighting":     (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING"], 16, "rgba", "dwab"),
-    "GI":                   (["REDSHIFT_AOV_TYPE_GI", "REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION", "REDSHIFT_AOV_TYPE_INDIRECT_DIFFUSE", "REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16, "rgba", "dwab"),
+    "GI":                   (["REDSHIFT_AOV_TYPE_GI", "REDSHIFT_AOV_TYPE_GLOBAL_ILLUMINATION", "REDSHIFT_AOV_TYPE_INDIRECT_DIFFUSE"], 16, "rgba", "dwab"),
     "Specular Lighting":    (["REDSHIFT_AOV_TYPE_SPECULAR_LIGHTING"], 16, "rgba", "dwab"),
     "Reflections":          (["REDSHIFT_AOV_TYPE_REFLECTIONS"], 16, "rgba", "dwab"),
     "SSS":                  (["REDSHIFT_AOV_TYPE_SUB_SURFACE_SCATTER", "REDSHIFT_AOV_TYPE_SSS"], 16, "rgba", "dwab"),
@@ -931,19 +936,30 @@ _AOV_DEFS = {
     "Volume Fog Tint":      (["REDSHIFT_AOV_TYPE_VOLUME_FOG_TINT"], 16, "rgba", "dwab"),
     "Volume Fog Emission":  (["REDSHIFT_AOV_TYPE_VOLUME_FOG_EMISSION"], 16, "rgba", "dwab"),
     "Shadows":              (["REDSHIFT_AOV_TYPE_SHADOWS"], 16, "rgba", "dwab"),
-    # Filter/Raw passes (RGBA, DWAA)
+    # Filter/Raw passes (RGBA, DWAB, 16-bit half)
     "Diffuse Filter":       (["REDSHIFT_AOV_TYPE_DIFFUSE_FILTER"], 16, "rgba", "dwab"),
     "Reflection Filter":    (["REDSHIFT_AOV_TYPE_REFLECTION_FILTER", "REDSHIFT_AOV_TYPE_REFLECTIONS_FILTER", "REDSHIFT_AOV_TYPE_REFL_FILTER"], 16, "rgba", "dwab"),
     "Diffuse Lighting Raw": (["REDSHIFT_AOV_TYPE_DIFFUSE_LIGHTING_RAW"], 16, "rgba", "dwab"),
     "Refractions Raw":      (["REDSHIFT_AOV_TYPE_REFRACTIONS_RAW", "REDSHIFT_AOV_TYPE_REFRACTION_RAW"], 16, "rgba", "dwab"),
     "Ambient Occlusion":    (["REDSHIFT_AOV_TYPE_AMBIENT_OCCLUSION"], 16, "rgba", "dwab"),
-    # Utility passes (RGB, ZIP lossless for data precision)
+    # Utility passes (RGB, PIZ lossless, 32-bit float for precision)
     "Depth":                (["REDSHIFT_AOV_TYPE_DEPTH", "REDSHIFT_AOV_TYPE_Z_DEPTH"], 32, "rgb", "piz"),
     "Motion Vectors":       (["REDSHIFT_AOV_TYPE_MOTION_VECTORS"], 32, "rgb", "piz"),
     "Cryptomatte":          (["REDSHIFT_AOV_TYPE_CRYPTOMATTE"], 32, "rgb", "piz"),
     "World Position":       (["REDSHIFT_AOV_TYPE_WORLD_POSITION"], 32, "rgb", "piz"),
+    # Utility passes (RGB, PIZ lossless, 16-bit half)
     "Normals":              (["REDSHIFT_AOV_TYPE_NORMALS"], 16, "rgb", "piz"),
     "Bump Normals":         (["REDSHIFT_AOV_TYPE_BUMP_NORMALS"], 16, "rgb", "piz"),
+}
+
+# Compression lookup (defined once, not per-iteration)
+_COMP_MAP = {
+    "default": "REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT",
+    "zip": "REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIP",
+    "zips": "REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIPS",
+    "piz": "REDSHIFT_AOV_FILE_COMPRESSION_EXR_PIZ",
+    "dwaa": "REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAA",
+    "dwab": "REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAB",
 }
 
 # Tier definitions — names must match _AOV_DEFS keys
@@ -1087,13 +1103,10 @@ def force_aov_tier(doc, tier_list):
 
     try:
         existing_aovs = redshift.RendererGetAOVs(vprs)
-        existing_names = set()
-        for aov in existing_aovs:
-            try:
-                existing_names.add(aov.GetParameter(c4d.REDSHIFT_AOV_NAME) or "")
-            except Exception:
-                pass
+        existing_names = {aov.GetParameter(c4d.REDSHIFT_AOV_NAME) or ""
+                          for aov in existing_aovs}
 
+        comp_target = int(GlobalSettings.get('comp_target', 0))  # 0=Nuke, 1=AE
         added = 0
         new_aovs = list(existing_aovs)
 
@@ -1108,55 +1121,47 @@ def force_aov_tier(doc, tier_list):
 
             _, bit_depth, data_type, compression = _AOV_DEFS[name]
 
-            COMP_MAP = {
-                "default": c4d.REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT,
-                "zip": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIP,
-                "zips": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_ZIPS,
-                "piz": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_PIZ,
-                "dwaa": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAA,
-                "dwab": c4d.REDSHIFT_AOV_FILE_COMPRESSION_EXR_DWAB,
-            }
-
             try:
                 new_aov = redshift.RSAOV()
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_TYPE, aov_type)
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_NAME, name)
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_ENABLED, True)
 
-                # Multi-Pass OFF, Direct ON
+                # Output mode: Direct ON, Multi-Pass OFF
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_MULTIPASS_ENABLED, False)
                 new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_ENABLED, True)
 
-                # Direct Output config (using named constants)
-                depth_const = c4d.REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT32 if bit_depth == 32 else c4d.REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT16
-                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_BIT_DEPTH, depth_const)
-                dtype_const = c4d.REDSHIFT_AOV_FILE_DATATYPE_RGBA if data_type == "rgba" else c4d.REDSHIFT_AOV_FILE_DATATYPE_RGB
-                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_DATA_TYPE, dtype_const)
-                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_COMPRESSION, COMP_MAP.get(compression, c4d.REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT))
+                # Direct Output: bit depth, data type, compression
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_BIT_DEPTH,
+                    c4d.REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT32 if bit_depth == 32
+                    else c4d.REDSHIFT_AOV_FILE_BIT_DEPTH_FLOAT16)
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_DATA_TYPE,
+                    c4d.REDSHIFT_AOV_FILE_DATATYPE_RGBA if data_type == "rgba"
+                    else c4d.REDSHIFT_AOV_FILE_DATATYPE_RGB)
+                comp_const = getattr(c4d, _COMP_MAP.get(compression, "REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT"),
+                                     c4d.REDSHIFT_AOV_FILE_COMPRESSION_DEFAULT)
+                new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_COMPRESSION, comp_const)
                 if compression in ("dwab", "dwaa"):
                     new_aov.SetParameter(c4d.REDSHIFT_AOV_FILE_EXR_DWA_COMPRESSION, 45.0)
 
-                # Per-AOV options based on compositor target
-                comp_target = int(GlobalSettings.get('comp_target', 0))
-
+                # Compositor-specific settings for utility AOVs
                 if name == "Depth":
-                    new_aov.SetParameter(1004, 3)  # Filter Type = Center Sample (both targets)
+                    new_aov.SetParameter(_DEPTH_FILTER_TYPE, 3)  # Center Sample
                     if comp_target == 0:  # Nuke
-                        new_aov.SetParameter(1019, 0)  # Depth Mode = Z (raw world units)
-                        new_aov.SetParameter(1020, 0)  # Camera Near/Far = OFF
+                        new_aov.SetParameter(_DEPTH_MODE, 0)          # Z raw
+                        new_aov.SetParameter(_DEPTH_CAMERA_NEARFAR, 0) # OFF
                     else:  # After Effects
-                        new_aov.SetParameter(1019, 2)  # Depth Mode = Z Normalized Inverted (white=near)
-                        new_aov.SetParameter(1020, 1)  # Camera Near/Far = ON
-
+                        new_aov.SetParameter(_DEPTH_MODE, 2)          # Z Normalized Inverted
+                        new_aov.SetParameter(_DEPTH_CAMERA_NEARFAR, 1) # ON
                 elif name == "Motion Vectors":
-                    new_aov.SetParameter(1013, 0)  # Filtering = OFF (both targets)
+                    new_aov.SetParameter(_MV_FILTERING, 0)  # OFF
                     if comp_target == 0:  # Nuke
-                        new_aov.SetParameter(1008, 1)  # Output Raw Vectors = ON
-                        new_aov.SetParameter(1009, 1)  # No Clamp = ON
-                    else:  # After Effects (RSMB Pro format)
-                        new_aov.SetParameter(1008, 0)  # Output Raw Vectors = OFF (normalized 0-1)
-                        new_aov.SetParameter(1009, 0)  # No Clamp = OFF
-                        new_aov.SetParameter(1010, 64) # Max Motion = 64px (match RSMB MaxDisplace)
+                        new_aov.SetParameter(_MV_RAW_VECTORS, 1)  # ON
+                        new_aov.SetParameter(_MV_NO_CLAMP, 1)     # ON
+                    else:  # After Effects (RSMB Pro)
+                        new_aov.SetParameter(_MV_RAW_VECTORS, 0)  # OFF (normalized)
+                        new_aov.SetParameter(_MV_NO_CLAMP, 0)     # OFF
+                        new_aov.SetParameter(_MV_MAX_MOTION, 64)  # Match RSMB MaxDisplace
 
                 new_aovs.append(new_aov)
                 added += 1
