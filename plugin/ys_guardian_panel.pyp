@@ -1656,6 +1656,7 @@ class G:
 
     # Render preset
     PRESET_DROPDOWN = 1002
+    LABEL_RESOLUTION = 1170
     BTN_FORCE_RENDER = 1204
     BTN_FORCE_ALL = 1206
 
@@ -1742,11 +1743,10 @@ class YSPanel(gui.GeDialog):
         try:
             ard = doc.GetActiveRenderData()
             if ard:
-                name = (ard.GetName() or "").strip().lower()
-                # Update the active preset based on current render data
+                name = normalize_preset_name(ard.GetName() or "")
                 if name in PRESETS:
                     self._active_preset = name
-                    self._update_preset_buttons()
+                self._update_preset_buttons()
         except Exception as e:
             safe_print(f"Error syncing render preset: {e}")
 
@@ -1801,18 +1801,25 @@ class YSPanel(gui.GeDialog):
             safe_print(f"Error applying render preset: {e}")
 
     def _update_preset_buttons(self):
-        """Update preset dropdown to show active preset"""
-        # Map preset names to dropdown indices
+        """Update preset dropdown and resolution label"""
         preset_to_index = {
-            "previz": 0,
-            "pre_render": 1,
-            "render": 2,
-            "stills": 3
+            "previz": 0, "pre_render": 1, "render": 2, "stills": 3
         }
-
         normalized_preset = normalize_preset_name(self._active_preset)
         if normalized_preset in preset_to_index:
             self.SetInt32(G.PRESET_DROPDOWN, preset_to_index[normalized_preset])
+
+        # Update resolution label
+        doc = c4d.documents.GetActiveDocument()
+        if doc:
+            rd = doc.GetActiveRenderData()
+            if rd:
+                try:
+                    w = int(rd[c4d.RDATA_XRES])
+                    h = int(rd[c4d.RDATA_YRES])
+                    self.SetString(G.LABEL_RESOLUTION, f"{w}x{h}")
+                except Exception:
+                    pass
 
     def _refresh(self):
         """Throttled refresh with performance optimization"""
@@ -1982,10 +1989,11 @@ class YSPanel(gui.GeDialog):
         self.GroupBorderSpace(4, 2, 4, 2)
 
         # Preset row
-        self.GroupBegin(20, c4d.BFH_SCALEFIT, 3, 0)
+        self.GroupBegin(20, c4d.BFH_SCALEFIT, 4, 0)
         self.AddComboBox(G.PRESET_DROPDOWN, c4d.BFH_SCALEFIT, 100, 0)
-        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Force")
-        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Force All")
+        self.AddStaticText(G.LABEL_RESOLUTION, c4d.BFH_LEFT, 100, 0, "", 0)
+        self.AddButton(G.BTN_FORCE_RENDER, c4d.BFH_SCALEFIT, 0, 0, "Reset Preset")
+        self.AddButton(G.BTN_FORCE_ALL, c4d.BFH_SCALEFIT, 0, 0, "Reset All")
         self.GroupEnd()
 
         # AOVs config row
