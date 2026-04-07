@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 # Plugin ID - change if ID collision
 PLUGIN_ID = 2099069
-PLUGIN_NAME = "YS Guardian v1.3.0"
+PLUGIN_NAME = "YS Guardian v1.4.0"
 
 # Preset names - normalized to lowercase with underscores
 # The system accepts both "pre_render" and "pre-render" (case-insensitive)
