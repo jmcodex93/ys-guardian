@@ -103,47 +103,104 @@
 
 ## Pending — Next Phases
 
-### Priority 1 — Medium Impact, Medium Effort
+### v1.5.0 — Production Workflow (Tier A: High impact, easy)
+
+#### Smart Incremental Save
+One-click version bump with required comment:
+- `scene_v001.c4d` → `scene_v002.c4d` automatically
+- Prompt for comment on save (stored in sidecar JSON)
+- Version history browseable from the panel
+- No external tools needed — pure file convention
+
+**Why**: No versioning exists. Artists overwrite or manually rename. Mistakes are unrecoverable.
+
+#### Scene Notes / TODO
+Per-scene notes and checklist visible in the panel:
+- Comment field stored in document UserData or sidecar JSON
+- TODO checklist (e.g., "Fix lighting on s020", "Client feedback: warmer tones")
+- Persists between sessions
+- Included in QC export and Scene Collector manifest
+
+**Why**: Context gets lost between sessions and between artists. Notes in Slack/email get buried.
+
+#### Review Slate on Snapshots
+Burn metadata into Save Still PNGs:
+- Shot ID, Artist name, Frame number, Date, Resolution
+- Small overlay bar at bottom (like editorial slates)
+- Supervisor instantly knows the context of every image
+
+**Why**: Unnamed PNGs on a server are useless without context. Every image should be self-documenting.
+
+#### FPS + Frame Range Validation (QC check #11)
+New quality check:
+- Verify project FPS matches studio standard (configurable: 24/25/30)
+- Verify frame range is not "Current Frame" (animation renders)
+- Verify frame range makes sense (start < end, reasonable length)
+- Warn if "All Frames" selected (renders entire timeline)
+
+**Why**: Wrong FPS or frame range are silent errors that waste hours of render time.
+
+### v1.6.0 — Multi-Format & Asset Health (Tier B: High impact, medium effort)
+
+#### Multi-Format Render Setup
+One-click duplicate render settings for multiple aspect ratios:
+- 16:9 (landscape), 9:16 (Reels/Stories), 1:1 (Instagram), 4:5 (Feed)
+- Each format gets correct resolution + output path with format token
+- Camera framing guide per format (if possible)
+- Essential for social media motion graphics delivery
+
+**Why**: Studios deliver the same animation in 3-5 formats. Manual duplication is error-prone and slow.
+
+#### Texture Repathing Tool
+Bulk find-and-replace for texture paths:
+- Show all textures with current paths
+- Find/replace path prefixes (e.g., `/Users/old/` → `/server/project/`)
+- One-click "make all relative"
+- Works with classic shaders AND RS node materials
+
+**Why**: Moving projects between machines/servers breaks all texture paths. This is a daily pain point.
+
+#### Post-Render Validation
+Verify render output after completion:
+- Check all expected AOV files exist
+- Detect zero-byte files (failed frames)
+- Verify frame sequence completeness (no gaps: frame 1-100 should have 100 files)
+- Report missing/corrupt frames
+
+**Why**: Discovering missing frames after a 12-hour render wastes another render cycle.
+
+#### Scene Complexity Budget
+Visual budget meter for scene resources:
+- Total polygon count vs configurable budget
+- Texture memory estimate vs GPU VRAM
+- Object count, light count
+- Green/yellow/red status per metric
+- Configurable thresholds per studio
+
+**Why**: Artists don't realize a scene is too heavy until render fails with out-of-memory.
+
+### Backlog — Consider Later
 
 #### MessageData Plugin
-Background monitoring even when the panel is closed:
-- Register a MessageData plugin alongside CommandData
-- Listen to EVMSG_CHANGE globally
-- Show notification when opening a scene with QC issues
-- Optional: console warning on scene save if issues exist
-
-**Why**: Artists forget to open the panel. Background monitoring catches problems earlier.
-
-**Why**: If Apply Color Processing is on, the AOVs won't composite correctly — the data is no longer linear.
-
-### Priority 3 — Lower Impact, Easy
+Background monitoring with panel closed. Invasive — reconsider when plugin is mature.
 
 #### Template Configurable
-Let the supervisor choose the template .c4d file:
-- Add "..." button next to Reset All
-- Path saved in settings (like snapshot dir)
-- Supervisor puts template on shared server
-- All artists use same template without modifying plugin
+Supervisor chooses .c4d template from shared server. Add "..." button next to Reset All.
 
 #### Dropdown Dinámico de Presets
-Show whatever presets exist in the scene, not just the 4 hardcoded:
-- Read all RenderData names from the document
-- Populate dropdown dynamically
-- Still highlight non-standard names in QC
+Show presets that exist in scene, not just hardcoded 4.
 
 #### Keyboard Shortcuts
-Register shortcuts for frequent actions:
-- Export QC Report
-- Refresh checks
-- Open/close panel
+Atajos for Export QC, refresh, panel toggle.
 
-#### Cleanup Old Auxiliary Files
-Remove files no longer imported:
-- `redshift_snapshot_manager_fixed.py`
-- `exr_to_png_converter_simple.py`
-- `python_path_config.py`
+#### Denoise Toggle per AOV
+Auto-enable denoise on noisy passes (GI, SSS). Needs param ID probe.
 
-These are kept for reference but add confusion. Could be moved to a `legacy/` folder.
+#### Slack/Teams Webhook
+Notify channel on Collect Scene or QC pass. Low effort, nice-to-have.
+
+#### Comp Tag Manager
+Bulk view/edit Object Buffer IDs, detect duplicates.
 
 ---
 
