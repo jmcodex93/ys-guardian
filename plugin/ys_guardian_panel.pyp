@@ -2399,7 +2399,7 @@ class YSPanel(gui.GeDialog):
             GlobalSettings.set('aov_multipart', 1 if self.GetBool(G.CHK_MULTIPART) else 0)
 
         elif cid == G.BTN_LIGHT_GROUPS:
-            self._activate_light_groups(doc)
+            self._toggle_light_groups(doc)
 
         elif cid == G.BTN_INFO_AOVS:
             result = check_rs_aovs(doc, AOV_TIER_PRODUCTION)
@@ -2409,7 +2409,12 @@ class YSPanel(gui.GeDialog):
                 c4d.gui.MessageDialog("No AOVs configured.\n\nUse 'Essentials' or 'Production' to add passes.")
             else:
                 target_name = "Nuke" if int(GlobalSettings.get('comp_target', 0)) == 0 else "After Effects"
-                msg = f"REDSHIFT AOVs: {len(result['aovs'])}  |  Target: {target_name}\n\n"
+                lg_status = "ON" if self._is_lg_active_on_beauty(doc) else "OFF"
+                groups, _ = self._scan_light_groups(doc)
+                lg_info = f"Light Groups: {lg_status}"
+                if groups and lg_status == "ON":
+                    lg_info += f" ({', '.join(sorted(groups.keys()))})"
+                msg = f"REDSHIFT AOVs: {len(result['aovs'])}  |  Target: {target_name}\n{lg_info}\n\n"
                 msg += "ACTIVE:\n"
                 for aov in result["aovs"]:
                     status = "ON" if aov.get("enabled") else "OFF"
@@ -2664,19 +2669,9 @@ class YSPanel(gui.GeDialog):
 
         return True
 
-    def _activate_light_groups(self, doc):
-        """Scan lights for group assignments and activate All Light Groups on Beauty AOV"""
-        if not REDSHIFT_AVAILABLE:
-            c4d.gui.MessageDialog("Redshift module not available.")
-            return
-
-        vprs = _get_rs_videopost(doc)
-        if not vprs:
-            c4d.gui.MessageDialog("Redshift VideoPost not found.")
-            return
-
-        # Scan lights for group assignments
-        groups = {}  # group_name → [light_names]
+    def _scan_light_groups(self, doc):
+        """Scan scene lights and return (groups_dict, ungrouped_list)"""
+        groups = {}
         ungrouped = []
         first = doc.GetFirstObject()
         if first:
@@ -2684,14 +2679,12 @@ class YSPanel(gui.GeDialog):
                 if not obj or not _is_light_obj(obj):
                     continue
                 light_name = _safe_name(obj)
-                # Read light group from the light itself
                 group = ""
                 try:
                     group = obj[c4d.REDSHIFT_LIGHT_LIGHT_GROUP] or ""
                 except Exception:
                     pass
                 if not group:
-                    # Try RS Object Tag
                     for tag in obj.GetTags():
                         try:
                             g = tag[c4d.REDSHIFT_LIGHT_GROUP_LIGHT_GROUP]
@@ -2704,39 +2697,71 @@ class YSPanel(gui.GeDialog):
                     groups.setdefault(group, []).append(light_name)
                 else:
                     ungrouped.append(light_name)
+        return groups, ungrouped
 
-        # Show diagnostic
+    def _is_lg_active_on_beauty(self, doc):
+        """Check if All Light Groups is active on Beauty AOV"""
+        vprs = _get_rs_videopost(doc)
+        if not vprs:
+            return False
+        try:
+            for aov in redshift.RendererGetAOVs(vprs):
+                if aov.GetParameter(c4d.REDSHIFT_AOV_NAME) == "Beauty":
+                    return bool(aov.GetParameter(c4d.REDSHIFT_AOV_LIGHTGROUP_ALL))
+        except Exception:
+            pass
+        return False
+
+    def _toggle_light_groups(self, doc):
+        """Toggle Light Groups on Beauty AOV with diagnostic"""
+        if not REDSHIFT_AVAILABLE:
+            c4d.gui.MessageDialog("Redshift module not available.")
+            return
+
+        vprs = _get_rs_videopost(doc)
+        if not vprs:
+            c4d.gui.MessageDialog("Redshift VideoPost not found.")
+            return
+
+        groups, ungrouped = self._scan_light_groups(doc)
+        lg_active = self._is_lg_active_on_beauty(doc)
+
         if not groups and not ungrouped:
             c4d.gui.MessageDialog("No lights found in the scene.")
             return
 
-        msg = f"LIGHT GROUPS DIAGNOSTIC\n\n"
+        # Build diagnostic message
+        msg = f"LIGHT GROUPS — {'ACTIVE' if lg_active else 'INACTIVE'}\n\n"
         if groups:
-            msg += f"Groups found ({len(groups)}):\n"
+            msg += f"Groups ({len(groups)}):\n"
             for gname, lights in sorted(groups.items()):
                 msg += f"  [{gname}]: {', '.join(lights)}\n"
         if ungrouped:
-            msg += f"\nUngrouped lights ({len(ungrouped)}):\n"
-            msg += f"  {', '.join(ungrouped)}\n"
-            msg += f"\n(Ungrouped lights contribute to all groups)\n"
+            msg += f"\nUngrouped ({len(ungrouped)}): {', '.join(ungrouped)}\n"
+            msg += f"  (These contribute to all groups)\n"
 
         if not groups:
-            msg += "\nNo light groups assigned. Assign groups on your RS lights first."
+            msg += "\nNo light groups assigned.\nAssign groups on your RS lights first."
             c4d.gui.MessageDialog(msg)
             return
 
-        msg += f"\nActivate 'All Light Groups' on Beauty AOV?"
+        if lg_active:
+            msg += "\nDeactivate Light Groups on Beauty AOV?"
+        else:
+            msg += "\nActivate Light Groups on Beauty AOV?"
+
         if not c4d.gui.QuestionDialog(msg):
             return
 
-        # Find Beauty AOV and activate All Light Groups
+        # Toggle on Beauty AOV
         try:
             aovs = redshift.RendererGetAOVs(vprs)
             found = False
             for aov in aovs:
                 try:
                     if aov.GetParameter(c4d.REDSHIFT_AOV_NAME) == "Beauty":
-                        aov.SetParameter(c4d.REDSHIFT_AOV_LIGHTGROUP_ALL, True)
+                        new_state = not lg_active
+                        aov.SetParameter(c4d.REDSHIFT_AOV_LIGHTGROUP_ALL, new_state)
                         found = True
                         break
                 except Exception:
@@ -2746,15 +2771,19 @@ class YSPanel(gui.GeDialog):
                 redshift.RendererSetAOVs(vprs, aovs)
                 check_cache.clear()
                 c4d.EventAdd()
-                safe_print(f"Light Groups activated on Beauty AOV ({len(groups)} groups)")
-                c4d.gui.MessageDialog(f"Light Groups activated on Beauty AOV!\n\n"
-                                     f"{len(groups)} group(s) detected.\n"
-                                     f"RS will generate Beauty_[GroupName] sub-AOVs at render time.")
+                if not lg_active:
+                    safe_print(f"Light Groups activated ({len(groups)} groups)")
+                    c4d.gui.MessageDialog(f"Light Groups ACTIVATED on Beauty\n\n"
+                                         f"{len(groups)} group(s): {', '.join(sorted(groups.keys()))}\n"
+                                         f"RS will generate Beauty_[GroupName] sub-AOVs.")
+                else:
+                    safe_print("Light Groups deactivated")
+                    c4d.gui.MessageDialog("Light Groups DEACTIVATED on Beauty")
             else:
-                c4d.gui.MessageDialog("Beauty AOV not found.\n\nRun Essentials or Production first to create AOVs.")
+                c4d.gui.MessageDialog("Beauty AOV not found.\n\nRun Essentials or Production first.")
 
         except Exception as e:
-            safe_print(f"Error activating light groups: {e}")
+            safe_print(f"Error toggling light groups: {e}")
             c4d.gui.MessageDialog(f"Error: {e}")
 
     def _force_aov_tier(self, doc, tier_list, tier_name):
