@@ -1,6 +1,6 @@
 # YS Guardian — Roadmap
 
-## Completed (v1.0.4 → v1.3.0)
+## Completed (v1.0.4 → v1.4.0)
 
 ### Fase 1 — Fix & Foundation ✅
 - [x] Fix bug: safe_print used before definition
@@ -64,29 +64,46 @@
 
 ---
 
+### v1.4.0 Features ✅
+
+#### Take-based QC ✅
+- [x] Validate camera assigned per take
+- [x] Validate output path contains $take token per take
+- [x] Handle inherited render data from Main Take
+- [x] Info button with per-take detail
+- [x] Included in QC report export
+
+#### Scene Collector ✅
+- [x] Pre-flight: runs all 10 QC checks, shows summary, offers auto-fix
+- [x] Collect: calls c4d.documents.SaveProject() (native asset collection)
+- [x] Manifest: generates ys_guardian_manifest.json with scene info, assets, missing list
+- [x] Complements C4D native — does NOT duplicate it
+
+#### Light Groups AOV ✅
+- [x] Independent button (not tied to Essentials/Production)
+- [x] Scans lights for group assignments (RS Light + RS Object Tag + RS Sky)
+- [x] Diagnostic: shows groups found, ungrouped lights
+- [x] Toggle: activate/deactivate "All Light Groups" on Beauty AOV only
+- [x] Show AOVs displays Light Groups status + group names
+- [x] Avoids explosion problem (only on Beauty, not per material AOV)
+
+#### Apply Color Processing ✅ (Investigated, left at default)
+- [x] Investigated: in ACEScg pipeline, ON/OFF produces identical results
+- [x] Decision: leave at RS default (ON) — no-op in properly configured OCIO pipeline
+- [x] Documented in RS_AOV_PARAM_IDS.md
+
+#### Other v1.4.0 changes ✅
+- [x] UI reorganized by workflow: QC → Scene Tools → Render → Output
+- [x] Render section unified (Presets + AOVs)
+- [x] Reset All from template + Force 9:16 toggle
+- [x] Resolution display next to preset dropdown
+- [x] Legacy snapshot files moved to plugin/legacy/
+
+---
+
 ## Pending — Next Phases
 
-### Priority 1 — High Impact, Medium Effort
-
-#### Take-based QC
-Validate per-take configuration for multi-shot scenes:
-- Each take has correct camera assigned
-- Each take has correct render preset
-- Each take has configured output path
-- Report missing/misconfigured takes in QC
-
-**Why**: Multi-take scenes are standard in production. A missing camera or wrong preset on one take means broken renders that only surface at render time.
-
-#### Scene Collector / Package
-Prepare scene for delivery or render farm:
-- Collect all assets (textures, alembics, references)
-- Verify all paths are relative
-- Copy to organized output structure
-- Generate manifest/report
-
-**Why**: The most common production failure is missing assets on the render farm. Automating collection prevents this.
-
-### Priority 2 — Medium Impact, Medium Effort
+### Priority 1 — Medium Impact, Medium Effort
 
 #### MessageData Plugin
 Background monitoring even when the panel is closed:
@@ -96,19 +113,6 @@ Background monitoring even when the panel is closed:
 - Optional: console warning on scene save if issues exist
 
 **Why**: Artists forget to open the panel. Background monitoring catches problems earlier.
-
-#### Light Groups AOV
-Auto-detect lights in the scene and create light group AOVs:
-- Scan for RS lights and their names/groups
-- Create per-group AOVs (Key, Fill, Rim, etc.)
-- Configure as RGBA + DWAB like other beauty AOVs
-
-**Why**: Light groups are essential for commercial/advertising work where per-light control is needed in post.
-
-#### Apply Color Processing OFF
-Automatically disable "Apply Color Processing" (ID 1006=0) on all AOVs:
-- Compositors need linear data, not baked color transforms
-- Currently left at default (1=on) which bakes OCIO view transform
 
 **Why**: If Apply Color Processing is on, the AOVs won't composite correctly — the data is no longer linear.
 
